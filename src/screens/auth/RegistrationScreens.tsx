@@ -160,7 +160,7 @@ export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
 
 
                         <Text style={[styles.helperText, { paddingBottom: 20 }]}>
-                            We will send a 6-digit OTP to verify your number.
+                            We will send a 4-digit OTP to verify your number.
                         </Text>
                     </View>
                 </ScrollView>
@@ -242,7 +242,7 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
                             <Text style={[styles.title, { textAlign: 'center' }]}>
                                 Verify <Text style={{ color: theme.colors.primary }}>Identity</Text>
                             </Text>
-                            <Text style={[styles.subtitle, { textAlign: 'center', maxWidth: 300 }]}>Enter the 6-digit code sent to your number.</Text>
+                            <Text style={[styles.subtitle, { textAlign: 'center', maxWidth: 300 }]}>Enter the 4-digit code sent to your number.</Text>
                             {route?.params?.debugOtp ? (
                                 <View style={styles.testOtpBox}>
                                     <Text style={styles.testOtpLabel}>Test OTP</Text>
@@ -256,7 +256,7 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
                             onChangeText={setOtp}
                             placeholder="0 0 0 0 0 0"
                             keyboardType="number-pad"
-                            maxLength={6}
+                            maxLength={4}
                             inputStyle={{
                                 textAlign: 'center',
                                 letterSpacing: 12,
