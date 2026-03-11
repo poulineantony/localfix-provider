@@ -333,7 +333,7 @@ export const PaymentScreen = ({ navigation, route }: any) => {
             <View style={styles.content}>
                 <Icon name="check-circle" size={80} color={theme.colors.success} />
                 <Text style={styles.successTitle}>Job Completed!</Text>
-                <Text style={styles.testPaymentText}>Payment test mode is enabled for provider settlement updates.</Text>
+                <Text style={styles.testPaymentText}>Confirm the cash collection before marking the payment as received.</Text>
 
                 <View style={styles.billCard}>
                     <View style={styles.billRow}>

@@ -254,12 +254,12 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
                         <Input
                             value={otp}
                             onChangeText={setOtp}
-                            placeholder="0 0 0 0 0 0"
+                            placeholder="0 0 0 0"
                             keyboardType="number-pad"
                             maxLength={4}
                             inputStyle={{
                                 textAlign: 'center',
-                                letterSpacing: 12,
+                                letterSpacing: 14,
                                 fontSize: 24,
                                 fontWeight: 'bold',
                                 height: 64
@@ -269,12 +269,12 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
                 </ScrollView>
                 <View style={styles.footer}>
                     <Button
-                        title={isSubmitting ? 'Verifying...' : 'Verify Securely'}
-                        onPress={handleVerifyOtp}
-                        disabled={otp.length < 4 || isSubmitting}
-                        icon={<Icon name="shield" size={20} color="#fff" />}
-                        style={{ backgroundColor: otp.length < 4 ? theme.colors.surfaceHighlight : theme.colors.primary }}
-                    />
+                            title={isSubmitting ? 'Verifying...' : 'Verify Securely'}
+                            onPress={handleVerifyOtp}
+                            disabled={otp.length < 4 || isSubmitting}
+                            icon={<Icon name="shield" size={20} color="#fff" />}
+                            style={{ backgroundColor: otp.length < 4 ? theme.colors.surfaceHighlight : theme.colors.primary }}
+                        />
                     <TouchableOpacity style={styles.resendButton}>
                         <Text style={styles.resendButtonText}>Resend Code</Text>
                     </TouchableOpacity>
