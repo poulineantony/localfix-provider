@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { authService, AuthUser } from '../services/authService';
 import { providerService, ProviderPayload, ProviderProfile, ProviderStats } from '../services/providerService';
+import { deviceService } from '../services/deviceService';
 
 interface AuthContextValue {
     isAuthenticated: boolean;
@@ -11,7 +12,7 @@ interface AuthContextValue {
     providerStats: ProviderStats | null;
     sendOtp: (phone: string) => Promise<{ success: boolean; error?: string; otp?: string }>;
     verifyOtp: (phone: string, otp: string) => Promise<{ success: boolean; error?: string }>;
-    refreshSession: () => Promise<void>;
+    refreshSession: () => Promise<ProviderProfile | null>;
     submitProviderProfile: (payload: ProviderPayload) => Promise<{ success: boolean; error?: string }>;
     toggleAvailability: () => Promise<{ success: boolean; error?: string }>;
     loadProviderStats: () => Promise<void>;
@@ -26,12 +27,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [providerStats, setProviderStats] = useState<ProviderStats | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const refreshSession = async () => {
+    const refreshSession = async (): Promise<ProviderProfile | null> => {
         if (!user?.id) {
-            return;
+            return null;
         }
 
-        const providerResult = await providerService.getMine(user.id);
+        const providerResult = await providerService.getMine();
         if (providerResult.success) {
             setProvider(providerResult.data || null);
 
@@ -41,12 +42,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                     setProviderStats(statsResult.data || null);
                 }
             }
+
+            return providerResult.data || null;
         }
+
+        return null;
     };
 
     const sendOtp = async (phone: string) => {
         setIsSubmitting(true);
-        const result = await authService.sendOtp(phone);
+        const deviceInfo = await deviceService.getDeviceInfo();
+        const result = await authService.sendOtp(phone, deviceInfo);
         setIsSubmitting(false);
 
         return {
@@ -58,11 +64,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const verifyOtp = async (phone: string, otp: string) => {
         setIsSubmitting(true);
-        const result = await authService.verifyOtp(phone, otp);
+        const deviceInfo = await deviceService.getDeviceInfo();
+        const result = await authService.verifyOtp(phone, otp, deviceInfo);
 
         if (result.success && result.data) {
             setUser(result.data.user);
-            const providerResult = await providerService.getMine(result.data.user.id);
+            const providerResult = await providerService.getMine();
             if (providerResult.success) {
                 setProvider(providerResult.data || null);
             }
@@ -95,6 +102,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                     name: meResult.data.name,
                     email: meResult.data.email,
                     phone: meResult.data.phone,
+                    language: meResult.data.language || user.language,
                     role: meResult.data.role,
                     roles: meResult.data.roles || [],
                     avatar: meResult.data.avatar,

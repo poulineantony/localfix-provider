@@ -27,6 +27,19 @@ export interface ProviderProfile {
     };
     serviceArea?: {
         cities?: string[];
+        formattedAddress?: string;
+        postalCode?: string;
+        coordinates?: {
+            latitude?: number;
+            longitude?: number;
+        };
+        zone?: {
+            zoneId?: string;
+            name?: string;
+            city?: string;
+            state?: string;
+            country?: string;
+        };
         radius?: number;
         unit?: string;
     };
@@ -35,6 +48,32 @@ export interface ProviderProfile {
     };
     verification?: {
         isVerified?: boolean;
+        reviewStatus?: 'pending' | 'approved' | 'rejected';
+        submittedAt?: string;
+        reviewedAt?: string;
+        reviewedBy?:
+            | string
+            | {
+                  _id: string;
+                  name?: string;
+                  email?: string;
+              };
+        reviewNotes?: string;
+        documents?: Array<{
+            type: string;
+            documentUrl?: string;
+            status?: 'pending' | 'approved' | 'rejected';
+            uploadedAt?: string;
+            reviewedAt?: string;
+            reviewedBy?:
+                | string
+                | {
+                      _id: string;
+                      name?: string;
+                      email?: string;
+                  };
+            reviewNote?: string;
+        }>;
     };
     bankDetails?: {
         accountHolderName?: string;
@@ -76,6 +115,19 @@ export interface ProviderPayload {
     };
     serviceArea?: {
         cities?: string[];
+        formattedAddress?: string;
+        postalCode?: string;
+        coordinates?: {
+            latitude?: number;
+            longitude?: number;
+        };
+        zone?: {
+            zoneId?: string;
+            name?: string;
+            city?: string;
+            state?: string;
+            country?: string;
+        };
         radius?: number;
         unit?: string;
     };
@@ -94,31 +146,9 @@ export interface ProviderPayload {
     };
 }
 
-const getUserId = (provider: ProviderProfile) => {
-    if (typeof provider.user === 'string') {
-        return provider.user;
-    }
-
-    return provider.user?._id;
-};
-
 export const providerService = {
-    async getMine(userId: string): Promise<ApiResult<ProviderProfile | null>> {
-        const result = await apiClient.get<ProviderProfile[]>(`${API_ENDPOINTS.providers.list}?limit=100`);
-
-        if (!result.success || !result.data) {
-            return {
-                success: false,
-                error: result.error,
-            };
-        }
-
-        const provider = result.data.find((item) => getUserId(item) === userId) || null;
-
-        return {
-            success: true,
-            data: provider,
-        };
+    async getMine(): Promise<ApiResult<ProviderProfile | null>> {
+        return apiClient.get<ProviderProfile | null>(API_ENDPOINTS.providers.me);
     },
 
     async create(data: ProviderPayload) {

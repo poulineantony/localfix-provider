@@ -55,6 +55,9 @@ export const bookingService = {
     async cancel(id: string, reason: string) {
         return apiClient.patch<BookingItem>(API_ENDPOINTS.bookings.cancel(id), { reason });
     },
+    async triggerSos(id: string, message?: string) {
+        return apiClient.post<{ bookingId: string }>(API_ENDPOINTS.notifications.triggerSos(id), { message });
+    },
     async updatePayment(id: string, status: 'pending' | 'paid', method: string) {
         return apiClient.patch<BookingItem>(API_ENDPOINTS.bookings.payment(id), { status, method });
     },

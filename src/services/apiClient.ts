@@ -12,9 +12,9 @@ type HeaderMap = Record<string, string>;
 let authToken: string | null = null;
 let refreshToken: string | null = null;
 
-const buildHeaders = (customHeaders?: HeaderMap): HeaderMap => {
+const buildHeaders = (customHeaders?: HeaderMap, options?: { omitContentType?: boolean }): HeaderMap => {
     const headers: HeaderMap = {
-        'Content-Type': 'application/json',
+        ...(!options?.omitContentType ? { 'Content-Type': 'application/json' } : {}),
         ...customHeaders,
     };
 
@@ -77,6 +77,13 @@ export const apiClient = {
             method: 'POST',
             headers: buildHeaders(headers),
             body: body ? JSON.stringify(body) : undefined,
+        });
+    },
+    async postForm<T>(endpoint: string, body: FormData, headers?: HeaderMap) {
+        return request<T>(endpoint, {
+            method: 'POST',
+            headers: buildHeaders(headers, { omitContentType: true }),
+            body,
         });
     },
     async put<T>(endpoint: string, body?: unknown, headers?: HeaderMap) {

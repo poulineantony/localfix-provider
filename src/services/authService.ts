@@ -1,4 +1,4 @@
-import { DEFAULT_DEVICE_INFO, API_ENDPOINTS } from '../config/api';
+import { API_ENDPOINTS } from '../config/api';
 import { apiClient, ApiResult } from './apiClient';
 
 export interface AuthUser {
@@ -7,6 +7,7 @@ export interface AuthUser {
     name: string;
     email: string;
     phone: string;
+    language?: string;
     role: 'customer' | 'provider' | 'admin';
     roles: string[];
     avatar?: string;
@@ -20,16 +21,26 @@ interface AuthPayload {
 }
 
 export const authService = {
-    async sendOtp(phone: string): Promise<ApiResult<{ otp?: string }>> {
+    async sendOtp(phone: string, deviceInfo?: any): Promise<ApiResult<{ otp?: string }>> {
         return apiClient.post(API_ENDPOINTS.auth.sendOtp, {
             phone,
-            deviceId: `provider-${phone}`,
-            ...DEFAULT_DEVICE_INFO,
+            ...(deviceInfo || {
+                deviceId: `provider-${phone}`,
+                deviceModel: 'LocalFix Provider App',
+                platform: 'android',
+                osVersion: 'unknown',
+                manufacturer: 'unknown',
+                isEmulator: false,
+            }),
         });
     },
 
-    async verifyOtp(phone: string, otp: string): Promise<ApiResult<AuthPayload>> {
-        const result = await apiClient.post<AuthPayload>(API_ENDPOINTS.auth.verifyOtp, { phone, otp });
+    async verifyOtp(phone: string, otp: string, deviceInfo?: any): Promise<ApiResult<AuthPayload>> {
+        const result = await apiClient.post<AuthPayload>(API_ENDPOINTS.auth.verifyOtp, {
+            phone,
+            otp,
+            ...deviceInfo,
+        });
         if (result.success && result.data) {
             apiClient.setTokens(result.data.token, result.data.refreshToken);
         }

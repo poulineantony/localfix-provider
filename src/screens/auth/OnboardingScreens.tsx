@@ -1,54 +1,53 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Image, FlatList, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { theme } from '../../config/theme';
 import { Button } from '../../components/Button';
 import LottieView from 'lottie-react-native';
+import { useTranslation } from '../../context/TranslationContext';
 
 const { width } = Dimensions.get('window');
 
-const CARDS = [
+const CARD_ASSETS = [
     {
         id: 1,
-        title: 'Get nearby jobs',
-        desc: 'Customers near you send requests directly to your phone.',
-        icon: 'location-on',
-        bgColor: '#6366f1',
-        iconColor: '#ffffff',
-        image: require('../../assets/nearby_jobs.png')
+        image: require('../../assets/nearby_jobs_card.jpg')
     },
     {
         id: 2,
-        title: 'Accept & fix',
-        desc: 'Choose the jobs you want. Navigate easily. Do your best work.',
-        icon: 'build',
-        bgColor: '#10b981',
-        iconColor: '#ffffff',
-        image: require('../../assets/accept_fix.png')
+        image: require('../../assets/accept_fix_card.jpg')
     },
     {
         id: 3,
-        title: 'Get paid fast',
-        desc: 'Weekly or instant settlements directly to your bank account.',
-        icon: 'account-balance-wallet',
-        bgColor: '#f59e0b',
-        iconColor: '#ffffff',
-        image: require('../../assets/get_paid.png')
+        image: require('../../assets/get_paid_card.jpg')
     }
 ];
 
 export const WelcomeScreen = ({ navigation }: any) => {
+    const { t, language, availableLanguages, changeLanguage, languagesLoading } = useTranslation();
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.headerRow}>
-                <Text style={styles.pageNumber}>Page 1</Text>
-                <View style={{ flex: 1 }} />
-                <TouchableOpacity style={styles.langButton}>
-                    <Icon name="language" size={20} color={theme.colors.textSecondary} />
-                    <Text style={styles.langText}>English</Text>
-                    <Icon name="arrow-drop-down" size={20} color={theme.colors.textSecondary} />
-                </TouchableOpacity>
+                {!languagesLoading && availableLanguages.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.languageScrollContent}>
+                        {availableLanguages.map((languageOption) => {
+                            const isActive = language === languageOption.code;
+
+                            return (
+                                <TouchableOpacity
+                                    key={languageOption.code}
+                                    style={[styles.langButton, isActive && styles.langButtonActive]}
+                                    onPress={() => changeLanguage(languageOption.code)}
+                                >
+                                    <Icon name="language" size={18} color={isActive ? '#fff' : theme.colors.textSecondary} />
+                                    <Text style={[styles.langText, isActive && styles.langTextActive]}>{languageOption.nativeLabel}</Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+                ) : null}
             </View>
 
             <View style={styles.content}>
@@ -61,14 +60,14 @@ export const WelcomeScreen = ({ navigation }: any) => {
                         resizeMode="cover"
                     />
                 </View>
-                <Text style={styles.tagline}>SERVICE PARTNER APP</Text>
-                <Text style={styles.title}>Earn more with LocalFix Pro</Text>
-                <Text style={styles.subtitle}>Get nearby service requests directly on your phone.</Text>
+                <Text style={styles.tagline}>{t('provider.welcome.tagline', 'Service Partner App')}</Text>
+                <Text style={styles.title}>{t('provider.welcome.title', 'Earn more with LocalFix Pro')}</Text>
+                <Text style={styles.subtitle}>{t('provider.welcome.subtitle', 'Get nearby service requests directly on your phone.')}</Text>
             </View>
 
             <View style={styles.footer}>
                 <Button
-                    title="Continue"
+                    title={t('common.continue', 'Continue')}
                     onPress={() => navigation.navigate('ModeSelection')}
                 />
             </View>
@@ -77,19 +76,21 @@ export const WelcomeScreen = ({ navigation }: any) => {
 };
 
 export const ModeSelectionScreen = ({ navigation }: any) => {
+    const { t } = useTranslation();
+
     const modes = [
         {
             key: 'individual',
-            title: 'Individual',
-            subtitle: 'Take jobs directly and work as a single service provider.',
+            title: t('provider.mode.individual.title', 'Individual'),
+            subtitle: t('provider.mode.individual.subtitle', 'Take jobs directly and work as a single service provider.'),
             icon: 'person',
             accent: theme.colors.primary,
             onPress: () => navigation.navigate('HowItWorks', { accountType: 'individual' }),
         },
         {
             key: 'fleet_member',
-            title: 'Fleet Member',
-            subtitle: 'Join an agency or head office using the fleet ID they created in the partner app.',
+            title: t('provider.mode.fleet_member.title', 'Fleet Member'),
+            subtitle: t('provider.mode.fleet_member.subtitle', 'Join an agency or head office using the fleet ID they created in the partner app.'),
             icon: 'badge',
             accent: theme.colors.orange,
             onPress: () => navigation.navigate('HowItWorks', { accountType: 'fleet_member' }),
@@ -98,15 +99,11 @@ export const ModeSelectionScreen = ({ navigation }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={styles.modeHeader}>
-                <Text style={styles.pageNumber}>Mode Select</Text>
-            </View>
-
             <View style={styles.modeContent}>
-                <Text style={styles.tagline}>Choose your path</Text>
-                <Text style={styles.title}>How do you want to join LocalFix?</Text>
+                <Text style={styles.tagline}>{t('provider.mode.tagline', 'Choose your path')}</Text>
+                <Text style={styles.title}>{t('provider.mode.title', 'How do you want to join LocalFix?')}</Text>
                 <Text style={styles.subtitle}>
-                    Select the setup that matches your work model. You can tailor the onboarding flow from here.
+                    {t('provider.mode.subtitle', 'Select the setup that matches your work model. You can tailor the onboarding flow from here.')}
                 </Text>
 
                 <View style={styles.modeCardList}>
@@ -134,10 +131,28 @@ export const ModeSelectionScreen = ({ navigation }: any) => {
 };
 
 export const HowItWorksScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [activeIndex, setActiveIndex] = useState(0);
     const accountType = route?.params?.accountType === 'fleet_member' ? 'fleet_member' : 'individual';
     const listRef = useRef<FlatList<any>>(null);
-    const isLastSlide = activeIndex === CARDS.length - 1;
+    const cards = useMemo(() => ([
+        {
+            ...CARD_ASSETS[0],
+            title: t('provider.card.nearby.title', 'Get nearby jobs'),
+            desc: t('provider.card.nearby.desc', 'Customers near you send requests directly to your phone.'),
+        },
+        {
+            ...CARD_ASSETS[1],
+            title: t('provider.card.accept.title', 'Accept & fix'),
+            desc: t('provider.card.accept.desc', 'Choose the jobs you want. Navigate easily. Do your best work.'),
+        },
+        {
+            ...CARD_ASSETS[2],
+            title: t('provider.card.paid.title', 'Get paid fast'),
+            desc: t('provider.card.paid.desc', 'Weekly or instant settlements directly to your bank account.'),
+        },
+    ]), [t]);
+    const isLastSlide = activeIndex === cards.length - 1;
 
     const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const slideSize = event.nativeEvent.layoutMeasurement.width;
@@ -152,16 +167,13 @@ export const HowItWorksScreen = ({ navigation, route }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}>
-                <Text style={styles.pageNumber}>Page 2</Text>
-            </View>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>How it works</Text>
+                <Text style={styles.headerTitle}>{t('provider.how_it_works.title', 'How it works')}</Text>
             </View>
 
             <FlatList
                 ref={listRef}
-                data={CARDS}
+                data={cards}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
@@ -197,7 +209,7 @@ export const HowItWorksScreen = ({ navigation, route }: any) => {
             />
 
             <View style={styles.pagination}>
-                {CARDS.map((_, i) => (
+                {cards.map((_, i) => (
                     <TouchableOpacity
                         key={i}
                         activeOpacity={0.85}
@@ -212,12 +224,12 @@ export const HowItWorksScreen = ({ navigation, route }: any) => {
 
             <View style={styles.footer}>
                 <Button
-                    title="Next"
+                    title={t('provider.how_it_works.next', 'Next')}
                     onPress={() => navigation.navigate('Requirements', { accountType })}
                     disabled={!isLastSlide}
                 />
                 {!isLastSlide ? (
-                    <Text style={styles.slideHint}>Swipe the slides below or tap the points. Next unlocks on the last slide.</Text>
+                    <Text style={styles.slideHint}>{t('provider.how_it_works.slide_hint', 'Swipe the slides below or tap the points. Next unlocks on the last slide.')}</Text>
                 ) : null}
             </View>
         </SafeAreaView>
@@ -225,32 +237,30 @@ export const HowItWorksScreen = ({ navigation, route }: any) => {
 };
 
 export const RequirementsScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const accountType = route?.params?.accountType === 'fleet_member' ? 'fleet_member' : 'individual';
     const requirements = accountType === 'fleet_member'
         ? [
-            'Valid phone number',
-            'Fleet ID from your agency or head office',
-            'ID proof (Aadhaar / DL)',
-            'Skill details and bank account'
+            t('provider.requirements.item.phone', 'Valid phone number'),
+            t('provider.requirements.item.fleet_id', 'Fleet ID from your agency or head office'),
+            t('provider.requirements.item.id_proof', 'ID proof (Aadhaar / DL)'),
+            t('provider.requirements.item.skills_bank', 'Skill details and bank account')
         ]
         : [
-            'Valid phone number',
-            'ID proof (Aadhaar / DL)',
-            'Skill details & Experience',
-            'Bank account for payments'
+            t('provider.requirements.item.phone', 'Valid phone number'),
+            t('provider.requirements.item.id_proof', 'ID proof (Aadhaar / DL)'),
+            t('provider.requirements.item.skills_experience', 'Skill details & Experience'),
+            t('provider.requirements.item.bank', 'Bank account for payments')
         ];
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}>
-                <Text style={styles.pageNumber}>Page 3</Text>
-            </View>
             <View style={styles.content}>
-                <Text style={styles.title}>What you need to join</Text>
+                <Text style={styles.title}>{t('provider.requirements.title', 'What you need to join')}</Text>
                 <Text style={styles.subtitle}>
                     {accountType === 'fleet_member'
-                        ? 'Keep your fleet ID ready before starting. Your agency or head office must already exist in the partner app.'
-                        : 'Make sure you have these ready for a smooth registration.'}
+                        ? t('provider.requirements.fleet.subtitle', 'Keep your fleet ID ready before starting. Your agency or head office must already exist in the partner app.')
+                        : t('provider.requirements.individual.subtitle', 'Make sure you have these ready for a smooth registration.')}
                 </Text>
 
                 <View style={styles.listContainer}>
@@ -265,7 +275,7 @@ export const RequirementsScreen = ({ navigation, route }: any) => {
 
             <View style={styles.footer}>
                 <Button
-                    title="Start Registration"
+                    title={t('provider.requirements.start', 'Start Registration')}
                     onPress={() => navigation.navigate('RegistrationPhone', { accountType })}
                 />
             </View>
@@ -410,19 +420,13 @@ const styles = StyleSheet.create({
         marginBottom: theme.spacing.l,
     },
     headerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        minHeight: 54,
         paddingHorizontal: theme.spacing.m,
         paddingTop: theme.spacing.s,
-        justifyContent: 'space-between',
+        justifyContent: 'center',
     },
-    pageNumber: {
-        fontSize: 12,
-        fontWeight: 'bold',
-        color: theme.colors.error, // Red for visibility as it is "for reference"
-        backgroundColor: 'rgba(255,0,0,0.1)',
-        padding: 4,
-        borderRadius: 4,
+    languageScrollContent: {
+        gap: theme.spacing.s,
     },
     langButton: {
         flexDirection: 'row',
@@ -434,15 +438,18 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: theme.colors.border,
     },
+    langButtonActive: {
+        backgroundColor: theme.colors.primary,
+        borderColor: theme.colors.primary,
+    },
     listText: {
         marginLeft: theme.spacing.m,
         color: theme.colors.text,
         fontSize: 16,
         flex: 1,
     },
-    modeHeader: {
-        paddingHorizontal: theme.spacing.m,
-        paddingTop: theme.spacing.m,
+    langTextActive: {
+        color: '#fff',
     },
     modeContent: {
         flex: 1,

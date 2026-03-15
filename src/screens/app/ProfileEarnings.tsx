@@ -5,9 +5,11 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { theme } from '../../config/theme';
 import { Button } from '../../components/Button';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/TranslationContext';
 import { bookingService } from '../../services/bookingService';
 
 export const EarningsScreen = () => {
+    const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<'Today' | 'Week' | 'Month'>('Week');
     const { providerStats, loadProviderStats } = useAuth();
     const [transactions, setTransactions] = useState<any[]>([]);
@@ -21,7 +23,7 @@ export const EarningsScreen = () => {
             if (result.success) {
                 setTransactions(result.data || []);
             } else {
-                Alert.alert('Earnings Unavailable', result.error || 'Could not load earnings data.');
+                Alert.alert(t('common.error', 'Error'), result.error || t('provider.earnings.unavailable', 'Could not load earnings data.'));
             }
             setLoading(false);
         };
@@ -63,7 +65,7 @@ export const EarningsScreen = () => {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Earnings</Text>
+                <Text style={styles.headerTitle}>{t('provider.nav.earnings', 'Earnings')}</Text>
             </View>
 
             <View style={styles.tabs}>
@@ -101,7 +103,7 @@ export const EarningsScreen = () => {
 
                     <Text style={styles.sectionTitle}>Recent Transactions</Text>
                     {filteredTransactions.length === 0 ? (
-                        <Text style={styles.emptyText}>No completed transactions in this period.</Text>
+                        <Text style={styles.emptyText}>{t('provider.earnings.empty', 'No completed transactions in this period.')}</Text>
                     ) : (
                         filteredTransactions.map(item => (
                             <View key={item._id} style={styles.transactionCard}>
@@ -123,6 +125,7 @@ export const EarningsScreen = () => {
 };
 
 export const ProfileScreen = () => {
+    const { t, language, availableLanguages, changeLanguage } = useTranslation();
     const { user, provider, logout } = useAuth();
 
     const MenuItem = ({ icon, title, subtitle, onPress }: any) => (
@@ -144,50 +147,75 @@ export const ProfileScreen = () => {
                 <View style={styles.profileAvatar}>
                     <Icon name="person" size={40} color={theme.colors.text} />
                 </View>
-                <Text style={styles.profileName}>{provider?.businessName || user?.name || 'Provider'}</Text>
-                <Text style={styles.profilePhone}>+91 {user?.phone || 'Not available'}</Text>
+                <Text style={styles.profileName}>{provider?.businessName || user?.name || t('provider.profile.no_name', 'Provider')}</Text>
+                <Text style={styles.profilePhone}>+91 {user?.phone || t('provider.profile.phone_missing', 'Not available')}</Text>
                 <View style={styles.verifiedBadge}>
                     <Icon name="verified" size={16} color={theme.colors.success} />
                     <Text style={{ color: theme.colors.success, marginLeft: 4, fontSize: 12, fontWeight: 'bold' }}>
-                        {provider?.verification?.isVerified ? 'VERIFIED PROVIDER' : 'VERIFICATION PENDING'}
+                        {provider?.verification?.isVerified
+                            ? t('provider.profile.verified', 'VERIFIED PROVIDER')
+                            : t('provider.profile.pending', 'VERIFICATION PENDING')}
                     </Text>
                 </View>
             </View>
 
             <ScrollView contentContainerStyle={styles.content}>
-                <Text style={styles.sectionHeader}>ACCOUNT</Text>
-                <MenuItem icon="person-outline" title="Profile" subtitle={user?.name || 'No name available'} />
-                <MenuItem icon="folder-open" title="Documents" subtitle="Verification submitted through provider API" />
+                <Text style={styles.sectionHeader}>{t('provider.profile.account', 'ACCOUNT')}</Text>
+                <MenuItem icon="person-outline" title={t('profile.title', 'Profile')} subtitle={user?.name || t('provider.profile.no_name', 'No name available')} />
+                <MenuItem icon="folder-open" title={t('provider.profile.documents', 'Documents')} subtitle={t('provider.profile.documents_subtitle', 'Verification submitted through provider API')} />
                 <MenuItem
                     icon="account-balance"
-                    title="Bank Details"
-                    subtitle={provider?.bankDetails?.ifscCode || 'Bank details not available'}
+                    title={t('provider.profile.bank_details', 'Bank Details')}
+                    subtitle={provider?.bankDetails?.ifscCode || t('provider.profile.bank_missing', 'Bank details not available')}
                 />
 
-                <Text style={styles.sectionHeader}>SERVICE</Text>
+                <Text style={styles.sectionHeader}>{t('provider.profile.service', 'SERVICE')}</Text>
                 <MenuItem
                     icon="build-circle"
-                    title="Service Areas"
-                    subtitle={provider?.serviceArea?.cities?.join(', ') || 'No service area available'}
+                    title={t('provider.profile.service_areas', 'Service Areas')}
+                    subtitle={provider?.serviceArea?.cities?.join(', ') || t('provider.profile.service_area_missing', 'No service area available')}
                 />
                 <MenuItem
                     icon="badge"
-                    title="Provider ID"
-                    subtitle={provider?._id || 'Not created'}
+                    title={t('provider.profile.provider_id', 'Provider ID')}
+                    subtitle={provider?._id || t('provider.profile.not_created', 'Not created')}
                 />
                 {provider?.fleetId ? (
                     <MenuItem
                         icon="groups"
-                        title="Fleet ID"
-                        subtitle={`${provider.fleetId}${provider.providerMode === 'fleet_member' ? ' • Linked fleet member' : ''}`}
+                        title={t('provider.profile.fleet_id', 'Fleet ID')}
+                        subtitle={`${provider.fleetId}${provider.providerMode === 'fleet_member' ? ` - ${t('provider.profile.linked_member', 'Linked fleet member')}` : ''}`}
                     />
                 ) : null}
 
-                <Text style={styles.sectionHeader}>SUPPORT</Text>
-                <MenuItem icon="help-outline" title="Help & Support" subtitle="Contact LocalFix admin team" />
+                {availableLanguages.length > 0 ? (
+                    <>
+                        <Text style={styles.sectionHeader}>{t('profile.language', 'Language')}</Text>
+                        <View style={styles.languageWrap}>
+                            {availableLanguages.map((languageOption) => {
+                                const isActive = language === languageOption.code;
+
+                                return (
+                                    <TouchableOpacity
+                                        key={languageOption.code}
+                                        style={[styles.languageChip, isActive && styles.languageChipActive]}
+                                        onPress={() => changeLanguage(languageOption.code)}
+                                    >
+                                        <Text style={[styles.languageChipText, isActive && styles.languageChipTextActive]}>
+                                            {languageOption.nativeLabel}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    </>
+                ) : null}
+
+                <Text style={styles.sectionHeader}>{t('provider.profile.support', 'SUPPORT')}</Text>
+                <MenuItem icon="help-outline" title={t('profile.help_support', 'Help & Support')} subtitle={t('provider.profile.support_subtitle', 'Contact LocalFix admin team')} />
 
                 <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-                    <Text style={styles.logoutText}>Logout</Text>
+                    <Text style={styles.logoutText}>{t('auth.logout', 'Logout')}</Text>
                 </TouchableOpacity>
 
                 <Text style={styles.versionText}>Version 1.0.0</Text>
@@ -370,6 +398,32 @@ const styles = StyleSheet.create({
         marginBottom: 8,
         marginTop: 24,
         marginLeft: 4,
+    },
+    languageWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 8,
+    },
+    languageChip: {
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: 18,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: theme.colors.surface,
+    },
+    languageChipActive: {
+        backgroundColor: theme.colors.primary,
+        borderColor: theme.colors.primary,
+    },
+    languageChipText: {
+        color: theme.colors.textSecondary,
+        fontWeight: '700',
+        fontSize: 12,
+    },
+    languageChipTextActive: {
+        color: '#fff',
     },
     menuItem: {
         flexDirection: 'row',

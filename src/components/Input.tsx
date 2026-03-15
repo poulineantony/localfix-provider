@@ -11,7 +11,7 @@ interface InputProps {
     keyboardType?: 'default' | 'number-pad' | 'email-address' | 'phone-pad';
     autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
     autoCorrect?: boolean;
-    autoComplete?: 'off' | 'name' | 'email' | 'username' | 'password' | 'tel';
+    autoComplete?: 'off' | 'name' | 'email' | 'username' | 'password' | 'tel' | 'street-address';
     spellCheck?: boolean;
     error?: string;
     multiline?: boolean;
@@ -19,6 +19,8 @@ interface InputProps {
     inputStyle?: any;
     maxLength?: number;
     onBlur?: () => void;
+    editable?: boolean;
+    selectTextOnFocus?: boolean;
 }
 
 export const Input = ({
@@ -37,7 +39,9 @@ export const Input = ({
     style,
     inputStyle,
     maxLength,
-    onBlur
+    onBlur,
+    editable = true,
+    selectTextOnFocus = false,
 }: InputProps) => {
     const [isFocused, setIsFocused] = useState(false);
     const focusAnim = useRef(new Animated.Value(0)).current;
@@ -103,9 +107,12 @@ export const Input = ({
                     multiline={multiline}
                     onFocus={handleFocus}
                     onBlur={handleBlur}
+                    editable={editable}
+                    selectTextOnFocus={selectTextOnFocus}
                     style={[
                         styles.input,
                         multiline && styles.multiline,
+                        !editable && styles.inputDisabled,
                         inputStyle
                     ]}
                     maxLength={maxLength}
@@ -144,6 +151,9 @@ const styles = StyleSheet.create({
     multiline: {
         textAlignVertical: 'top',
         height: '100%',
+    },
+    inputDisabled: {
+        color: theme.colors.textMuted,
     },
     errorText: {
         color: theme.colors.error,

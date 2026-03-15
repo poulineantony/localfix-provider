@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, KeyboardAvoidingView, Platform, Keyboard, Modal, FlatList, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, KeyboardAvoidingView, Platform, Keyboard, Modal, FlatList, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { Asset, launchImageLibrary } from 'react-native-image-picker';
 
 import LottieView from 'lottie-react-native';
 import { theme } from '../../config/theme';
@@ -9,17 +10,32 @@ import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
 import { Header } from '../../components/Header'; // We'll create this later or inline it
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/TranslationContext';
 import { providerService } from '../../services/providerService';
 import { userService } from '../../services/userService';
-import { serviceService } from '../../services/serviceService';
+import { serviceService, ServiceCategoryItem, ServiceItem } from '../../services/serviceService';
 
 type RegistrationAccountType = 'individual' | 'fleet_member';
+
+type RegistrationLocation = {
+    addressLine: string;
+    street?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    zipCode?: string;
+    placeId?: string;
+    latitude?: number;
+    longitude?: number;
+    zoneId?: string;
+    zoneName?: string;
+};
 
 const getAccountType = (route: any): RegistrationAccountType => {
     return route?.params?.accountType === 'fleet_member' ? 'fleet_member' : 'individual';
 };
 
-const CATEGORY_TO_SERVICE_MAP: Record<string, string> = {
+const LEGACY_CATEGORY_MAP: Record<string, string> = {
     Electrician: 'electrical',
     Plumber: 'plumbing',
     'AC Technician': 'ac-repair',
@@ -27,6 +43,51 @@ const CATEGORY_TO_SERVICE_MAP: Record<string, string> = {
     Carpenter: 'carpentry',
     Painter: 'painting',
     Driver: 'other',
+};
+
+const buildServiceIdsFromCategories = (
+    selectedCategoryValues: string[],
+    availableCategories: ServiceCategoryItem[] = []
+) => {
+    const ids = new Set<string>();
+
+    availableCategories
+        .filter((category) => selectedCategoryValues.includes(category.value))
+        .forEach((category) => {
+            category.services.forEach((service) => ids.add(service._id));
+        });
+
+    return Array.from(ids);
+};
+
+const formatCategoryLabel = (value: string) =>
+    value
+        .split(/[-_]/g)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+
+const buildCategoriesFromServices = (services: ServiceItem[]): ServiceCategoryItem[] => {
+    const grouped = services.reduce<Record<string, ServiceCategoryItem>>((accumulator, service) => {
+        if (!accumulator[service.category]) {
+            accumulator[service.category] = {
+                value: service.category,
+                label: formatCategoryLabel(service.category),
+                count: 0,
+                services: [],
+            };
+        }
+
+        accumulator[service.category].count += 1;
+        accumulator[service.category].services.push({
+            _id: service._id,
+            name: service.name,
+        });
+
+        return accumulator;
+    }, {});
+
+    return Object.values(grouped).sort((left, right) => left.label.localeCompare(right.label));
 };
 
 const resolveServiceIds = async (categories: string[]) => {
@@ -40,29 +101,41 @@ const resolveServiceIds = async (categories: string[]) => {
         };
     }
 
-    const mappedCategories = categories.map(category => CATEGORY_TO_SERVICE_MAP[category] || category.toLowerCase());
+    const mappedCategories = categories.map((category) => LEGACY_CATEGORY_MAP[category] || category.toLowerCase());
     const serviceIds = servicesResult.data
-        .filter(service => mappedCategories.includes(service.category))
-        .map(service => service._id);
-
-    if (serviceIds.length === 0) {
-        return {
-            success: false,
-            error: 'No matching backend services found for the selected categories',
-            data: [] as string[],
-        };
-    }
+        .filter((service) => mappedCategories.includes(service.category))
+        .map((service) => service._id);
 
     return {
-        success: true,
+        success: serviceIds.length > 0,
+        error: serviceIds.length > 0 ? undefined : 'No matching backend services found for the selected categories',
         data: serviceIds,
+    };
+};
+
+const buildAvatarUploadPayload = (asset: Asset) => {
+    if (!asset.uri) {
+        return null;
+    }
+
+    const fallbackExtension = asset.type?.split('/')[1] || 'jpg';
+    const sanitizedExtension = fallbackExtension.replace(/[^a-zA-Z0-9]/g, '') || 'jpg';
+    const name = asset.fileName || `provider-avatar-${Date.now()}.${sanitizedExtension}`;
+
+    return {
+        uri: asset.uri,
+        name,
+        type: asset.type || 'image/jpeg',
     };
 };
 
 // 1. Phone Login
 export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [phone, setPhone] = useState('');
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+    const { height } = useWindowDimensions();
+    const isCompactHeight = height < 840;
     const accountType = getAccountType(route);
     const { sendOtp, isSubmitting } = useAuth();
 
@@ -99,7 +172,7 @@ export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
         const result = await sendOtp(phone);
 
         if (!result.success) {
-            Alert.alert('OTP Failed', result.error || 'Unable to send OTP right now.');
+            Alert.alert(t('common.error', 'Error'), result.error || t('provider.auth.phone.send_failed', 'Unable to send OTP right now.'));
             return;
         }
 
@@ -110,31 +183,38 @@ export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
         });
     };
 
+    const sendOtpButton = (
+        <Button
+            title={isSubmitting ? t('provider.auth.phone.sending', 'Sending...') : t('provider.auth.phone.send', 'Send OTP')}
+            onPress={handleSendOtp}
+            disabled={phone.length < 10 || isSubmitting}
+            icon={<Icon name="arrow-forward" size={20} color="#fff" />}
+            style={{ backgroundColor: phone.length < 10 ? theme.colors.surfaceHighlight : theme.colors.primary }}
+        />
+    );
+
     return (
         <SafeAreaView style={styles.container}>
-            <View style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}>
-                <Text style={styles.pageNumber}>Page 4</Text>
-            </View>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-                <ScrollView contentContainerStyle={{ flexGrow: 1 }} style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-                    <View style={styles.content}>
+                <ScrollView contentContainerStyle={styles.authScrollContent} style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                    <View style={[styles.content, isCompactHeight && styles.compactContent]}>
                         {!isKeyboardVisible && (
-                            <View style={{ alignItems: 'center', marginBottom: theme.spacing.l }}>
+                            <View style={[styles.heroContainer, isCompactHeight && styles.compactHeroContainer]}>
                                 <Image
-                                    source={require('../../assets/login_hero.png')}
-                                    style={{ width: 250, height: 260 }}
+                                    source={require('../../assets/login_hero_card.jpg')}
+                                    style={[styles.heroImage, isCompactHeight && styles.compactHeroImage]}
                                     resizeMode="contain"
                                 />
                             </View>
                         )}
 
-                        <View style={{ marginBottom: theme.spacing.xl }}>
-                            <Text style={styles.title}>Earn more with</Text>
-                            <Text style={[styles.title, { color: theme.colors.primary }]}>Local Fix Pro</Text>
-                            <Text style={styles.subtitle}>
+                        <View style={[styles.authIntro, isCompactHeight && styles.compactAuthIntro]}>
+                            <Text style={[styles.title, isCompactHeight && styles.compactTitle]}>{t('provider.auth.phone.title_primary', 'Earn more with')}</Text>
+                            <Text style={[styles.title, isCompactHeight && styles.compactTitle, { color: theme.colors.primary }]}>{t('provider.auth.phone.title_secondary', 'Local Fix Pro')}</Text>
+                            <Text style={[styles.subtitle, isCompactHeight && styles.compactSubtitle]}>
                                 {accountType === 'fleet_member'
-                                    ? 'Enter the number linked to your fleet membership.'
-                                    : 'Enter your phone number to login or register.'}
+                                    ? t('provider.auth.phone.subtitle.fleet_member', 'Enter the number linked to your fleet membership.')
+                                    : t('provider.auth.phone.subtitle.individual', 'Enter your phone number to login or register.')}
                             </Text>
                         </View>
 
@@ -145,7 +225,7 @@ export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
                             <Input
                                 value={phone}
                                 onChangeText={handlePhoneChange}
-                                placeholder="Phone number"
+                                placeholder={t('provider.auth.phone.placeholder', 'Phone number')}
                                 keyboardType="phone-pad"
                                 maxLength={10}
                                 style={{ flex: 1, marginBottom: 0 }}
@@ -158,21 +238,22 @@ export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
                             />
                         </View>
 
-
-                        <Text style={[styles.helperText, { paddingBottom: 20 }]}>
-                            We will send a 4-digit OTP to verify your number.
+                        <Text style={[styles.helperText, isCompactHeight && styles.compactHelperText]}>
+                            {t('provider.auth.phone.helper', 'We will send a 4-digit OTP to verify your number.')}
                         </Text>
+
+                        {isKeyboardVisible ? (
+                            <View style={styles.keyboardActionWrap}>
+                                {sendOtpButton}
+                            </View>
+                        ) : null}
                     </View>
                 </ScrollView>
-                <View style={styles.footer}>
-                    <Button
-                        title={isSubmitting ? 'Sending...' : 'Send OTP'}
-                        onPress={handleSendOtp}
-                        disabled={phone.length < 10 || isSubmitting}
-                        icon={<Icon name="arrow-forward" size={20} color="#fff" />}
-                        style={{ backgroundColor: phone.length < 10 ? theme.colors.surfaceHighlight : theme.colors.primary }}
-                    />
-                </View>
+                {!isKeyboardVisible ? (
+                    <View style={[styles.footer, isCompactHeight && styles.compactFooter]}>
+                        {sendOtpButton}
+                    </View>
+                ) : null}
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
@@ -180,11 +261,19 @@ export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
 
 // 2. OTP Verification
 export const RegistrationOTPScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [otp, setOtp] = useState('');
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
     const accountType = getAccountType(route);
     const phone = route?.params?.phone || '';
+    const debugOtp = typeof route?.params?.debugOtp === 'string'
+        ? route.params.debugOtp.replace(/\D/g, '').slice(0, 4)
+        : '';
     const { verifyOtp, isSubmitting } = useAuth();
+    const otpTitle = t('provider.auth.otp.title', 'Verify Identity');
+    const otpTitleParts = otpTitle.split(' ');
+    const otpTitlePrimary = otpTitleParts.length > 1 ? otpTitleParts.slice(0, -1).join(' ') : otpTitle;
+    const otpTitleAccent = otpTitleParts.length > 1 ? otpTitleParts.slice(-1).join(' ') : '';
 
     useEffect(() => {
         const keyboardDidShowListener = Keyboard.addListener(
@@ -206,11 +295,22 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
         };
     }, []);
 
+    useEffect(() => {
+        if (debugOtp) {
+            setOtp(debugOtp);
+        }
+    }, [debugOtp]);
+
+    const handleOtpChange = (text: string) => {
+        const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4);
+        setOtp(cleaned);
+    };
+
     const handleVerifyOtp = async () => {
         const result = await verifyOtp(phone, otp);
 
         if (!result.success) {
-            Alert.alert('Verification Failed', result.error || 'Invalid OTP');
+            Alert.alert(t('common.error', 'Error'), result.error || t('provider.auth.otp.invalid', 'Invalid OTP'));
             return;
         }
 
@@ -220,43 +320,57 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
         });
     };
 
+    const verifyOtpButton = (
+        <Button
+            title={isSubmitting ? t('provider.auth.otp.verifying', 'Verifying...') : t('provider.auth.otp.verify', 'Verify Securely')}
+            onPress={handleVerifyOtp}
+            disabled={otp.length < 4 || isSubmitting}
+            icon={<Icon name="shield" size={20} color="#fff" />}
+            style={{ backgroundColor: otp.length < 4 ? theme.colors.surfaceHighlight : theme.colors.primary }}
+        />
+    );
+
+    const resendCodeButton = (
+        <TouchableOpacity style={styles.resendButton}>
+            <Text style={styles.resendButtonText}>{t('provider.auth.otp.resend', 'Resend Code')}</Text>
+        </TouchableOpacity>
+    );
+
     return (
         <SafeAreaView style={styles.container}>
-            <View style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}>
-                <Text style={styles.pageNumber}>Page 5</Text>
-            </View>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-                <ScrollView contentContainerStyle={{ flexGrow: 1 }} style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                <ScrollView contentContainerStyle={styles.authScrollContent} style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
                     <View style={styles.content}>
                         {!isKeyboardVisible && (
                             <View style={{ alignItems: 'center', marginBottom: theme.spacing.l }}>
                                 <Image
-                                    source={require('../../assets/otp_hero.png')}
+                                    source={require('../../assets/otp_hero_card.jpg')}
                                     style={{ width: 200, height: 200 }}
                                     resizeMode="contain"
                                 />
                             </View>
                         )}
 
-                        <View style={{ marginBottom: theme.spacing.xl, alignItems: 'center', marginTop: isKeyboardVisible ? 150 : 0 }}>
+                        <View style={{ marginBottom: theme.spacing.xl, alignItems: 'center', marginTop: isKeyboardVisible ? theme.spacing.l : 0 }}>
                             <Text style={[styles.title, { textAlign: 'center' }]}>
-                                Verify <Text style={{ color: theme.colors.primary }}>Identity</Text>
+                                {otpTitlePrimary}
+                                {otpTitleAccent ? (
+                                    <>
+                                        {' '}
+                                        <Text style={{ color: theme.colors.primary }}>{otpTitleAccent}</Text>
+                                    </>
+                                ) : null}
                             </Text>
-                            <Text style={[styles.subtitle, { textAlign: 'center', maxWidth: 300 }]}>Enter the 4-digit code sent to your number.</Text>
-                            {route?.params?.debugOtp ? (
-                                <View style={styles.testOtpBox}>
-                                    <Text style={styles.testOtpLabel}>Test OTP</Text>
-                                    <Text style={styles.testOtpValue}>{route.params.debugOtp}</Text>
-                                </View>
-                            ) : null}
+                            <Text style={[styles.subtitle, { textAlign: 'center', maxWidth: 300 }]}>{t('provider.auth.otp.subtitle', 'Enter the 4-digit code sent to your number.')}</Text>
                         </View>
 
                         <Input
                             value={otp}
-                            onChangeText={setOtp}
-                            placeholder="0 0 0 0"
+                            onChangeText={handleOtpChange}
+                            placeholder={t('provider.auth.otp.placeholder', '0 0 0 0')}
                             keyboardType="number-pad"
                             maxLength={4}
+                            selectTextOnFocus={Boolean(debugOtp)}
                             inputStyle={{
                                 textAlign: 'center',
                                 letterSpacing: 14,
@@ -265,20 +379,21 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
                                 height: 64
                             }}
                         />
+
+                        {isKeyboardVisible ? (
+                            <View style={styles.keyboardActionWrap}>
+                                {verifyOtpButton}
+                                {resendCodeButton}
+                            </View>
+                        ) : null}
                     </View>
                 </ScrollView>
-                <View style={styles.footer}>
-                    <Button
-                            title={isSubmitting ? 'Verifying...' : 'Verify Securely'}
-                            onPress={handleVerifyOtp}
-                            disabled={otp.length < 4 || isSubmitting}
-                            icon={<Icon name="shield" size={20} color="#fff" />}
-                            style={{ backgroundColor: otp.length < 4 ? theme.colors.surfaceHighlight : theme.colors.primary }}
-                        />
-                    <TouchableOpacity style={styles.resendButton}>
-                        <Text style={styles.resendButtonText}>Resend Code</Text>
-                    </TouchableOpacity>
-                </View>
+                {!isKeyboardVisible ? (
+                    <View style={styles.footer}>
+                        {verifyOtpButton}
+                        {resendCodeButton}
+                    </View>
+                ) : null}
             </KeyboardAvoidingView>
 
         </SafeAreaView>
@@ -287,6 +402,7 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
 
 // 3. Personal Details
 export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [name, setName] = useState('');
     const [day, setDay] = useState('');
     const [month, setMonth] = useState('');
@@ -297,6 +413,9 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
     const [isCheckingFleet, setIsCheckingFleet] = useState(false);
     const [showYearPicker, setShowYearPicker] = useState(false);
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+    const { user } = useAuth();
+    const [avatarUrl, setAvatarUrl] = useState(user?.avatar || '');
+    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
     const accountType = getAccountType(route);
     const phone = route?.params?.phone || '';
 
@@ -358,13 +477,64 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
         }
     };
 
+    const handlePickProfilePhoto = async () => {
+        const result = await launchImageLibrary({
+            mediaType: 'photo',
+            selectionLimit: 1,
+            quality: 0.8,
+            maxWidth: 1600,
+            maxHeight: 1600,
+        });
+
+        if (result.didCancel) {
+            return;
+        }
+
+        if (result.errorCode) {
+            Alert.alert(
+                t('provider.personal.photo_failed_title', 'Photo Upload Failed'),
+                result.errorMessage || t('provider.personal.photo_failed_open', 'Could not open your photo library.')
+            );
+            return;
+        }
+
+        const selectedAsset = result.assets?.[0];
+        const uploadPayload = selectedAsset ? buildAvatarUploadPayload(selectedAsset) : null;
+
+        if (!uploadPayload) {
+            Alert.alert(
+                t('provider.personal.photo_failed_title', 'Photo Upload Failed'),
+                t('provider.personal.photo_failed_invalid', 'Please choose a valid image.')
+            );
+            return;
+        }
+
+        const previousAvatarUrl = avatarUrl;
+        setAvatarUrl(uploadPayload.uri);
+        setIsUploadingAvatar(true);
+
+        const uploadResult = await userService.uploadAvatar(uploadPayload);
+        setIsUploadingAvatar(false);
+
+        if (!uploadResult.success || !uploadResult.data?.avatar) {
+            setAvatarUrl(previousAvatarUrl);
+            Alert.alert(
+                t('provider.personal.photo_failed_title', 'Photo Upload Failed'),
+                uploadResult.error || t('provider.personal.photo_failed_upload', 'Could not upload your profile photo.')
+            );
+            return;
+        }
+
+        setAvatarUrl(uploadResult.data.avatar);
+    };
+
     const handleVerifyFleetId = async () => {
         if (accountType !== 'fleet_member') {
             return true;
         }
 
         if (!fleetId) {
-            setFleetIdError('Enter the fleet ID shared by your agency or head office.');
+            setFleetIdError(t('provider.personal.fleet.error_required', 'Enter the fleet ID shared by your agency or head office.'));
             setLinkedFleetName('');
             return false;
         }
@@ -376,13 +546,13 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
         setIsCheckingFleet(false);
 
         if (!result.success) {
-            setFleetIdError(result.error || 'Unable to verify this fleet ID right now.');
+            setFleetIdError(result.error || t('provider.personal.fleet.error_verify', 'Unable to verify this fleet ID right now.'));
             setLinkedFleetName('');
             return false;
         }
 
         if (!result.data) {
-            setFleetIdError('Fleet ID not found. Check with your agency or head office.');
+            setFleetIdError(t('provider.personal.fleet.error_not_found', 'Fleet ID not found. Check with your agency or head office.'));
             setLinkedFleetName('');
             return false;
         }
@@ -401,87 +571,68 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
         navigation.navigate('RegistrationService', {
             accountType,
             phone,
-            personal: { name, day, month, year, fleetId, linkedFleetName },
+            personal: { name, day, month, year, fleetId, linkedFleetName, avatar: avatarUrl },
         });
     };
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}>
-                <Text style={styles.pageNumber}>Page 6</Text>
-            </View>
-            <Header onBack={() => navigation.goBack()} title="Profile Setup" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.personal.header', 'Profile Setup')} />
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
                 <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
                     <View style={{ marginBottom: theme.spacing.l }}>
                         <Text style={styles.title}>
-                            Who are <Text style={{ color: theme.colors.primary }}>You?</Text>
+                            {t('provider.personal.title.primary', 'Who are')} <Text style={{ color: theme.colors.primary }}>{t('provider.personal.title.accent', 'You?')}</Text>
                         </Text>
                     </View>
 
                     {!isKeyboardVisible && (
                         <View style={styles.avatarContainer}>
-                            <TouchableOpacity style={{
-                                width: 120,
-                                height: 120,
-                                borderRadius: 60,
-                                backgroundColor: theme.colors.surface,
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                shadowColor: theme.colors.primary,
-                                shadowOffset: { width: 0, height: 4 },
-                                shadowOpacity: 0.1,
-                                shadowRadius: 12,
-                                elevation: 5,
-                                borderWidth: 4,
-                                borderColor: '#fff'
-                            }}>
-                                <View style={{
-                                    width: 112,
-                                    height: 112,
-                                    borderRadius: 56,
-                                    backgroundColor: 'rgba(99, 102, 241, 0.10)',
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    overflow: 'hidden'
-                                }}>
-                                    <Icon name="account-circle" size={72} color={theme.colors.primary} />
+                            <TouchableOpacity style={styles.avatarButton} onPress={handlePickProfilePhoto} disabled={isUploadingAvatar}>
+                                <View style={styles.avatarInner}>
+                                    {avatarUrl ? (
+                                        <Image source={{ uri: avatarUrl }} style={styles.avatarImage} resizeMode="cover" />
+                                    ) : (
+                                        <Icon name="account-circle" size={72} color={theme.colors.primary} />
+                                    )}
+                                    {isUploadingAvatar ? (
+                                        <View style={styles.avatarLoadingOverlay}>
+                                            <ActivityIndicator size="small" color="#fff" />
+                                        </View>
+                                    ) : null}
                                 </View>
-                                <View style={{
-                                    position: 'absolute',
-                                    bottom: 0,
-                                    right: 0,
-                                    backgroundColor: theme.colors.primary,
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 18,
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    borderWidth: 3,
-                                    borderColor: '#fff'
-                                }}>
+                                <View style={styles.avatarBadge}>
                                     <Icon name="add-a-photo" size={17} color="#fff" />
                                 </View>
                             </TouchableOpacity>
                             <Text style={{ marginTop: 12, color: theme.colors.primary, fontWeight: '600' }}>
-                                Add Profile Photo
+                                {isUploadingAvatar
+                                    ? t('provider.personal.photo_uploading', 'Uploading Profile Photo...')
+                                    : avatarUrl
+                                        ? t('provider.personal.photo_change', 'Change Profile Photo')
+                                        : t('provider.personal.photo_add', 'Add Profile Photo')}
                             </Text>
                         </View>
                     )}
 
                     <View style={{ gap: 16, marginTop: isKeyboardVisible ? 60 : 0 }}>
-                        <Input label="Full Name" value={name} onChangeText={setName} placeholder="John Doe" />
+                        <Input
+                            label={t('profile.full_name', 'Full Name')}
+                            value={name}
+                            onChangeText={setName}
+                            placeholder={t('provider.personal.name_placeholder', 'John Doe')}
+                        />
                         {accountType === 'fleet_member' ? (
                             <View>
                                 <Input
-                                    label="Fleet ID"
+                                    label={t('provider.personal.fleet.label', 'Fleet ID')}
                                     value={fleetId}
                                     onChangeText={(text) => {
                                         setFleetId(text.toUpperCase().replace(/[^A-Z0-9_-]/g, ''));
                                         setLinkedFleetName('');
                                         setFleetIdError('');
                                     }}
-                                    placeholder="Enter the fleet ID from partner app"
+                                    placeholder={t('provider.personal.fleet.placeholder', 'Enter the fleet ID from partner app')}
                                     autoCapitalize="characters"
                                     autoCorrect={false}
                                     autoComplete="off"
@@ -494,14 +645,14 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                                     ) : (
                                         <>
                                             <Icon name="badge" size={18} color={theme.colors.primary} />
-                                            <Text style={styles.fleetCheckText}>Check Fleet ID</Text>
+                                            <Text style={styles.fleetCheckText}>{t('provider.personal.fleet.check', 'Check Fleet ID')}</Text>
                                         </>
                                     )}
                                 </TouchableOpacity>
                                 {linkedFleetName ? (
                                     <View style={styles.fleetStatusCard}>
                                         <Icon name="verified" size={18} color={theme.colors.success} />
-                                        <Text style={styles.fleetStatusText}>Linked to {linkedFleetName}</Text>
+                                        <Text style={styles.fleetStatusText}>{`${t('provider.personal.fleet.linked_to', 'Linked to')} ${linkedFleetName}`}</Text>
                                     </View>
                                 ) : null}
                                 {fleetIdError ? (
@@ -511,13 +662,13 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                         ) : null}
 
                         <View>
-                            <Text style={{ color: theme.colors.textSecondary, marginBottom: 8, fontWeight: '600', fontSize: 14 }}>Date of Birth</Text>
+                            <Text style={{ color: theme.colors.textSecondary, marginBottom: 8, fontWeight: '600', fontSize: 14 }}>{t('provider.personal.dob', 'Date of Birth')}</Text>
                             <View style={{ flexDirection: 'row', gap: 12 }}>
                                 <View style={{ flex: 1 }}>
                                     <Input
                                         value={day}
                                         onChangeText={handleDayChange}
-                                        placeholder="DD"
+                                        placeholder={t('provider.personal.dob_day', 'DD')}
                                         keyboardType="number-pad"
                                         maxLength={2}
                                         inputStyle={{ textAlign: 'center' }}
@@ -528,7 +679,7 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                                     <Input
                                         value={month}
                                         onChangeText={handleMonthChange}
-                                        placeholder="MM"
+                                        placeholder={t('provider.personal.dob_month', 'MM')}
                                         keyboardType="number-pad"
                                         maxLength={2}
                                         inputStyle={{ textAlign: 'center' }}
@@ -549,7 +700,7 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                                         }}
                                     >
                                         <Text style={{ fontSize: 16, color: year ? theme.colors.text : theme.colors.textMuted }}>
-                                            {year || 'YYYY'}
+                                            {year || t('provider.personal.dob_year', 'YYYY')}
                                         </Text>
                                         <Icon name="arrow-drop-down" size={24} color={theme.colors.textSecondary} style={{ position: 'absolute', right: 8 }} />
                                     </TouchableOpacity>
@@ -568,7 +719,7 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
                             <View style={{ backgroundColor: theme.colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, height: 400 }}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-                                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text }}>Select Year</Text>
+                                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text }}>{t('provider.personal.select_year', 'Select Year')}</Text>
                                     <TouchableOpacity onPress={() => setShowYearPicker(false)}>
                                         <Icon name="close" size={24} color={theme.colors.text} />
                                     </TouchableOpacity>
@@ -595,11 +746,11 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                 </ScrollView>
                 <View style={styles.footer}>
                     <Button
-                        title="Continue"
+                        title={t('common.continue', 'Continue')}
                         onPress={handleContinue}
-                        disabled={!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId)}
+                        disabled={!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId) || isUploadingAvatar}
                         icon={<Icon name="arrow-forward" size={20} color="#fff" />}
-                        style={{ backgroundColor: (!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId)) ? theme.colors.surfaceHighlight : theme.colors.primary }}
+                        style={{ backgroundColor: (!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId) || isUploadingAvatar) ? theme.colors.surfaceHighlight : theme.colors.primary }}
                     />
                 </View>
             </KeyboardAvoidingView>
@@ -608,13 +759,16 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
 };
 
 // 4. Service Details
-const SERVICE_CATEGORIES = ['Electrician', 'Plumber', 'AC Technician', 'Mechanic', 'Carpenter', 'Painter'];
-
 export const RegistrationServiceScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [experience, setExperience] = useState('');
-    const [area, setArea] = useState('');
+    const [addressQuery, setAddressQuery] = useState('');
+    const [selectedLocation, setSelectedLocation] = useState<RegistrationLocation | null>(null);
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+    const [availableCategories, setAvailableCategories] = useState<ServiceCategoryItem[]>([]);
+    const [isLoadingCategories, setIsLoadingCategories] = useState(true);
+    const [categoryLoadError, setCategoryLoadError] = useState('');
     const accountType = getAccountType(route);
     const phone = route?.params?.phone || '';
     const personal = route?.params?.personal;
@@ -639,82 +793,173 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
         };
     }, []);
 
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadCategories = async () => {
+            setIsLoadingCategories(true);
+            setCategoryLoadError('');
+
+            const categoryResult = await serviceService.getCategories();
+
+            if (categoryResult.success && categoryResult.data?.length) {
+                if (isMounted) {
+                    setAvailableCategories(categoryResult.data);
+                    setIsLoadingCategories(false);
+                }
+                return;
+            }
+
+            const servicesResult = await serviceService.getAll();
+
+            if (servicesResult.success && servicesResult.data?.length) {
+                if (isMounted) {
+                    setAvailableCategories(buildCategoriesFromServices(servicesResult.data));
+                    setIsLoadingCategories(false);
+                }
+                return;
+            }
+
+            if (isMounted) {
+                setAvailableCategories([]);
+                if (!categoryResult.success && !servicesResult.success) {
+                    setCategoryLoadError(categoryResult.error || servicesResult.error || t('provider.service.categories_error', 'Unable to load service categories right now.'));
+                } else {
+                    setCategoryLoadError('');
+                }
+                setIsLoadingCategories(false);
+            }
+        };
+
+        loadCategories();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    const canContinue = !!selectedLocation?.addressLine && selectedCategories.length > 0 && !!experience;
+
     return (
         <SafeAreaView style={styles.container}>
-            <Header onBack={() => navigation.goBack()} title="Professional Info" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.service.header', 'Professional Info')} />
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
                 <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
                     {!isKeyboardVisible && (
-                        <>
-                            <View style={{ marginBottom: theme.spacing.l }}>
-                                <Text style={styles.title}>
-                                    Your <Text style={{ color: theme.colors.primary }}>Expertise</Text>
-                                </Text>
-                            </View>
-
-                            <Text style={styles.label}>Select Category</Text>
-                            <View style={styles.grid}>
-                                {SERVICE_CATEGORIES.map(cat => {
-                                    const isSelected = selectedCategories.includes(cat);
-                                    return (
-                                        <TouchableOpacity
-                                            key={cat}
-                                            style={[
-                                                styles.categoryChip,
-                                                isSelected && styles.categoryChipSelected
-                                            ]}
-                                            onPress={() => {
-                                                if (isSelected) {
-                                                    setSelectedCategories(prev => prev.filter(c => c !== cat));
-                                                } else {
-                                                    setSelectedCategories(prev => [...prev, cat]);
-                                                }
-                                            }}
-                                        >
-                                            <Text style={[
-                                                styles.categoryText,
-                                                isSelected && styles.categoryTextSelected
-                                            ]}>{cat}</Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </View>
-                        </>
+                        <View style={{ marginBottom: theme.spacing.l }}>
+                            <Text style={styles.title}>
+                                {t('provider.service.title.primary', 'Your')} <Text style={{ color: theme.colors.primary }}>{t('provider.service.title.accent', 'Expertise')}</Text>
+                            </Text>
+                            <Text style={styles.subtitle}>
+                                {t('provider.service.subtitle', 'Enter your work address manually. We will review and confirm it during verification.')}
+                            </Text>
+                        </View>
                     )}
 
-                    <View style={{ gap: 16, marginTop: isKeyboardVisible ? 160 : 0 }}>
+                    <Input
+                        label={t('provider.service.address_label', 'Work Address')}
+                        value={addressQuery}
+                        onChangeText={(text) => {
+                            setAddressQuery(text);
+                            const trimmedText = text.trim();
+                            setSelectedLocation(trimmedText ? {
+                                addressLine: trimmedText,
+                                street: trimmedText,
+                            } : null);
+                        }}
+                        placeholder={t('provider.service.address_placeholder', 'Enter your full work address')}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        autoComplete="street-address"
+                        spellCheck={false}
+                    />
+
+                    <View style={styles.infoBanner}>
+                        <Icon name="info-outline" size={18} color={theme.colors.primary} />
+                        <Text style={styles.infoBannerText}>
+                            {t('provider.service.address_note', 'Address autosuggestions are turned off here. Enter the address you want LocalFix to review.')}
+                        </Text>
+                    </View>
+
+                    <View style={{ gap: 16, marginTop: theme.spacing.m }}>
                         <Input
-                            label="Experience (Years)"
+                            label={t('provider.service.experience_label', 'Experience (Years)')}
                             value={experience}
                             onChangeText={(text) => setExperience(text.replace(/[^0-9]/g, ''))}
-                            placeholder="e.g. 5"
+                            placeholder={t('provider.service.experience_placeholder', 'e.g. 5')}
                             keyboardType="number-pad"
                             maxLength={2}
                         />
-                        <Input
-                            label="Working Area (Pin Code)"
-                            value={area}
-                            onChangeText={(text) => setArea(text.replace(/[^0-9]/g, ''))}
-                            placeholder="e.g. 560001"
-                            keyboardType="number-pad"
-                            maxLength={6}
-                        />
                     </View>
-                    {/* Add extra padding at bottom to ensure scrolling past keyboard */}
+
+                    <Text style={[styles.label, { marginTop: theme.spacing.l }]}>{t('provider.service.categories_label', 'Available Categories')}</Text>
+                    {isLoadingCategories ? (
+                        <View style={styles.inlineStatusRow}>
+                            <ActivityIndicator size="small" color={theme.colors.primary} />
+                            <Text style={styles.inlineStatusText}>{t('provider.service.categories_loading', 'Loading service categories...')}</Text>
+                        </View>
+                    ) : availableCategories.length > 0 ? (
+                        <View style={styles.grid}>
+                            {availableCategories.map((category) => {
+                                const isSelected = selectedCategories.includes(category.value);
+                                return (
+                                    <TouchableOpacity
+                                        key={category.value}
+                                        style={[
+                                            styles.categoryChip,
+                                            isSelected && styles.categoryChipSelected,
+                                        ]}
+                                        onPress={() => {
+                                            if (isSelected) {
+                                                setSelectedCategories((current) => current.filter((value) => value !== category.value));
+                                            } else {
+                                                setSelectedCategories((current) => [...current, category.value]);
+                                            }
+                                        }}
+                                    >
+                                        <Text style={[
+                                            styles.categoryText,
+                                            isSelected && styles.categoryTextSelected,
+                                        ]}>
+                                            {category.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    ) : categoryLoadError ? (
+                        <View style={styles.errorBanner}>
+                            <Icon name="error-outline" size={18} color={theme.colors.error} />
+                            <Text style={styles.errorBannerText}>{categoryLoadError}</Text>
+                        </View>
+                    ) : (
+                        <View style={styles.infoBanner}>
+                            <Icon name="manage-search" size={18} color={theme.colors.primary} />
+                            <Text style={styles.infoBannerText}>
+                                {t('provider.service.categories_empty_admin', 'No active service categories are configured in admin yet. Add active services in the admin panel to show them here.')}
+                            </Text>
+                        </View>
+                    )}
+
                     <View style={{ height: 24 }} />
                 </ScrollView>
                 <View style={styles.footer}>
                     <Button
-                        title="Next Step"
+                        title={t('provider.service.next_step', 'Next Step')}
                         onPress={() => navigation.navigate('RegistrationDocuments', {
                             accountType,
                             phone,
                             personal,
-                            serviceDetails: { selectedCategories, experience, area },
+                            serviceDetails: {
+                                selectedCategoryValues: selectedCategories,
+                                availableCategories,
+                                experience,
+                                location: selectedLocation,
+                            },
                         })}
-                        disabled={selectedCategories.length === 0 || !experience || !area}
+                        disabled={!canContinue}
                         icon={<Icon name="build" size={20} color="#fff" />}
-                        style={{ backgroundColor: (selectedCategories.length === 0 || !experience || !area) ? theme.colors.surfaceHighlight : theme.colors.primary }}
+                        style={{ backgroundColor: canContinue ? theme.colors.primary : theme.colors.surfaceHighlight }}
                     />
                 </View>
             </KeyboardAvoidingView>
@@ -724,23 +969,25 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
 
 // 5. Document Upload
 export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
-    const [idUploaded, setIdUploaded] = useState(false);
+    const { t } = useTranslation();
+    const [aadhaarUploaded, setAadhaarUploaded] = useState(false);
+    const [drivingLicenseUploaded, setDrivingLicenseUploaded] = useState(false);
+    const [passportUploaded, setPassportUploaded] = useState(false);
+    const [skillCertificateUploaded, setSkillCertificateUploaded] = useState(false);
     const [selfieUploaded, setSelfieUploaded] = useState(false);
     const accountType = getAccountType(route);
     const phone = route?.params?.phone || '';
     const personal = route?.params?.personal;
     const serviceDetails = route?.params?.serviceDetails;
+    const hasMandatoryIdDocument = aadhaarUploaded || drivingLicenseUploaded || passportUploaded;
 
     const handleTakeSelfie = () => {
-        // In a real app, use launchCamera({ includeBase64: true, mediaType: 'photo' }, ...)
-        // This ensures direct camera access only, no gallery.
-        // For now, we simulate the capture.
         Alert.alert(
-            "Take Selfie",
-            "Opening Camera for direct selfie...",
+            t('provider.documents.selfie_title', 'Take Selfie'),
+            t('provider.documents.selfie_message', 'Opening Camera for direct selfie...'),
             [
-                { text: "Capture", onPress: () => setSelfieUploaded(!selfieUploaded) },
-                { text: "Cancel", style: "cancel" }
+                { text: t('provider.documents.capture', 'Capture'), onPress: () => setSelfieUploaded(!selfieUploaded) },
+                { text: t('common.cancel', 'Cancel'), style: "cancel" }
             ]
         );
     };
@@ -758,7 +1005,7 @@ export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
             </View>
             <View style={{ flex: 1, marginLeft: 16 }}>
                 <Text style={styles.uploadTitle}>{title}</Text>
-                <Text style={styles.uploadStatus}>{uploaded ? 'Verified' : 'Tap to upload document'}</Text>
+                <Text style={styles.uploadStatus}>{uploaded ? t('provider.documents.uploaded', 'Verified') : t('provider.documents.tap_upload', 'Tap to upload document')}</Text>
             </View>
             {!uploaded && <Icon name="chevron-right" size={24} color={theme.colors.textMuted} />}
         </TouchableOpacity>
@@ -766,38 +1013,49 @@ export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Header onBack={() => navigation.goBack()} title="Verification" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.documents.header', 'Verification')} />
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={{ marginBottom: theme.spacing.l }}>
                     <Text style={styles.title}>
-                        Identity <Text style={{ color: theme.colors.primary }}>Proof</Text>
+                        {t('provider.documents.title.primary', 'Identity')} <Text style={{ color: theme.colors.primary }}>{t('provider.documents.title.accent', 'Proof')}</Text>
+                    </Text>
+                    <Text style={styles.subtitle}>
+                        {t('provider.documents.subtitle', 'Upload any one mandatory ID proof. Extra documents help the review, but they are optional.')}
                     </Text>
                 </View>
 
-                <UploadCard title="ID Proof (Aadhaar/DL)" uploaded={idUploaded} onPress={() => setIdUploaded(!idUploaded)} />
-                <UploadCard title="Skill Certificate (Optional)" uploaded={false} onPress={() => { }} />
-                <UploadCard title="Take a Selfie" uploaded={selfieUploaded} onPress={handleTakeSelfie} />
+                <UploadCard title={t('provider.documents.aadhaar', 'Aadhaar Card')} uploaded={aadhaarUploaded} onPress={() => setAadhaarUploaded(!aadhaarUploaded)} />
+                <UploadCard title={t('provider.documents.driving_license', 'Driving License')} uploaded={drivingLicenseUploaded} onPress={() => setDrivingLicenseUploaded(!drivingLicenseUploaded)} />
+                <UploadCard title={t('provider.documents.passport_voter', 'Passport / Voter ID')} uploaded={passportUploaded} onPress={() => setPassportUploaded(!passportUploaded)} />
+                <UploadCard title={t('provider.documents.skill_certificate', 'Skill Certificate (Optional)')} uploaded={skillCertificateUploaded} onPress={() => setSkillCertificateUploaded(!skillCertificateUploaded)} />
+                <UploadCard title={t('provider.documents.selfie_card', 'Take a Selfie')} uploaded={selfieUploaded} onPress={handleTakeSelfie} />
 
-                {idUploaded && (
+                {hasMandatoryIdDocument && (
                     <View style={styles.verificationStatus}>
                         <Icon name="hourglass-empty" size={20} color={theme.colors.orange} />
-                        <Text style={{ color: theme.colors.orange, marginLeft: 8, fontWeight: '600' }}>Verification will take 2-4 hours</Text>
+                        <Text style={{ color: theme.colors.orange, marginLeft: 8, fontWeight: '600' }}>{t('provider.documents.review_note', 'At least one mandatory ID is added. Review will take 2-4 hours.')}</Text>
                     </View>
                 )}
             </ScrollView>
             <View style={styles.footer}>
                     <Button
-                        title="Almost Done"
+                        title={t('provider.documents.almost_done', 'Almost Done')}
                         onPress={() => navigation.navigate('RegistrationBank', {
                             accountType,
                             phone,
                             personal,
                             serviceDetails,
-                            documents: { idUploaded, selfieUploaded },
+                            documents: {
+                                aadhaarUploaded,
+                                drivingLicenseUploaded,
+                                passportUploaded,
+                                skillCertificateUploaded,
+                                selfieUploaded,
+                            },
                         })}
-                        disabled={!idUploaded || !selfieUploaded}
+                        disabled={!hasMandatoryIdDocument}
                         icon={<Icon name="check-circle" size={20} color="#fff" />}
-                        style={{ backgroundColor: (!idUploaded || !selfieUploaded) ? theme.colors.surfaceHighlight : theme.colors.primary }}
+                        style={{ backgroundColor: !hasMandatoryIdDocument ? theme.colors.surfaceHighlight : theme.colors.primary }}
                 />
             </View>
         </SafeAreaView>
@@ -806,6 +1064,7 @@ export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
 
 // 6. Bank Details
 export const RegistrationBankScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [account, setAccount] = useState('');
     const [ifsc, setIfsc] = useState('');
     const [holder, setHolder] = useState('');
@@ -813,26 +1072,50 @@ export const RegistrationBankScreen = ({ navigation, route }: any) => {
     const phone = route?.params?.phone || user?.phone || '';
     const personal = route?.params?.personal;
     const serviceDetails = route?.params?.serviceDetails;
-    const documents = route?.params?.documents;
+    const documents = route?.params?.documents || {};
     const accountType = getAccountType(route);
 
     const handleComplete = async () => {
+        const selectedLocation = serviceDetails?.location as RegistrationLocation | undefined;
+        const availableCategories = serviceDetails?.availableCategories as ServiceCategoryItem[] | undefined;
+        const serviceIds = buildServiceIdsFromCategories(
+            serviceDetails?.selectedCategoryValues || [],
+            availableCategories || []
+        );
+
+        if (serviceIds.length === 0) {
+            Alert.alert(
+                t('provider.bank.service_mapping_failed_title', 'Service Mapping Failed'),
+                t('provider.bank.service_mapping_failed_message', 'No allowed services were found for the selected zone and categories.')
+            );
+            return;
+        }
+
         const profileResult = await userService.updateProfile({
             name: personal?.name,
             phone,
             address: {
-                city: serviceDetails?.area,
+                street: selectedLocation?.street,
+                formattedAddress: selectedLocation?.addressLine,
+                city: selectedLocation?.city,
+                state: selectedLocation?.state,
+                country: selectedLocation?.country,
+                zipCode: selectedLocation?.zipCode,
+                placeId: selectedLocation?.placeId,
+                zoneId: selectedLocation?.zoneId,
+                zoneName: selectedLocation?.zoneName,
+                coordinates: {
+                    latitude: selectedLocation?.latitude,
+                    longitude: selectedLocation?.longitude,
+                },
             },
         });
 
         if (!profileResult.success) {
-            Alert.alert('Profile Update Failed', profileResult.error || 'Could not save your user profile.');
-            return;
-        }
-
-        const serviceResolution = await resolveServiceIds(serviceDetails?.selectedCategories || []);
-        if (!serviceResolution.success) {
-            Alert.alert('Service Mapping Failed', serviceResolution.error || 'Could not map your services.');
+            Alert.alert(
+                t('provider.bank.profile_update_failed_title', 'Profile Update Failed'),
+                profileResult.error || t('provider.bank.profile_update_failed_message', 'Could not save your user profile.')
+            );
             return;
         }
 
@@ -840,21 +1123,37 @@ export const RegistrationBankScreen = ({ navigation, route }: any) => {
             businessName: personal?.name || holder,
             providerMode: accountType,
             fleetId: accountType === 'fleet_member' ? personal?.fleetId : undefined,
-            services: serviceResolution.data,
+            services: serviceIds,
             experience: {
                 years: Number(serviceDetails?.experience || 0),
                 description: `DOB ${personal?.day}/${personal?.month}/${personal?.year}`,
             },
             serviceArea: {
-                cities: serviceDetails?.area ? [serviceDetails.area] : [],
+                cities: selectedLocation?.city ? [selectedLocation.city] : [],
+                formattedAddress: selectedLocation?.addressLine,
+                postalCode: selectedLocation?.zipCode,
+                coordinates: {
+                    latitude: selectedLocation?.latitude,
+                    longitude: selectedLocation?.longitude,
+                },
+                zone: {
+                    zoneId: selectedLocation?.zoneId,
+                    name: selectedLocation?.zoneName,
+                    city: selectedLocation?.city,
+                    state: selectedLocation?.state,
+                    country: selectedLocation?.country,
+                },
                 radius: 10,
                 unit: 'km',
             },
             verification: {
                 documents: [
-                    { type: 'id-proof', documentUrl: documents?.idUploaded ? 'captured' : '', status: 'pending' },
-                    { type: 'selfie', documentUrl: documents?.selfieUploaded ? 'captured' : '', status: 'pending' },
-                ],
+                    documents?.aadhaarUploaded ? { type: 'aadhaar', documentUrl: 'captured', status: 'pending' } : null,
+                    documents?.drivingLicenseUploaded ? { type: 'driving-license', documentUrl: 'captured', status: 'pending' } : null,
+                    documents?.passportUploaded ? { type: 'passport-or-voter-id', documentUrl: 'captured', status: 'pending' } : null,
+                    documents?.skillCertificateUploaded ? { type: 'skill-certificate', documentUrl: 'captured', status: 'pending' } : null,
+                    documents?.selfieUploaded ? { type: 'selfie', documentUrl: 'captured', status: 'pending' } : null,
+                ].filter(Boolean) as Array<{ type: string; documentUrl: string; status: 'pending' }>,
             },
             bankDetails: {
                 accountHolderName: holder,
@@ -864,7 +1163,10 @@ export const RegistrationBankScreen = ({ navigation, route }: any) => {
         });
 
         if (!result.success) {
-            Alert.alert('Registration Failed', result.error || 'Unable to create provider profile.');
+            Alert.alert(
+                t('provider.bank.registration_failed_title', 'Registration Failed'),
+                result.error || t('provider.bank.registration_failed_message', 'Unable to create provider profile.')
+            );
             return;
         }
 
@@ -876,28 +1178,28 @@ export const RegistrationBankScreen = ({ navigation, route }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Header onBack={() => navigation.goBack()} title="Payments" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.bank.header', 'Payments')} />
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={{ marginBottom: theme.spacing.l, marginTop: theme.spacing.xl }}>
                     <Text style={styles.title}>
-                        Get <Text style={{ color: theme.colors.success }}>Paid</Text>
+                        {t('provider.bank.title.primary', 'Get')} <Text style={{ color: theme.colors.success }}>{t('provider.bank.title.accent', 'Paid')}</Text>
                     </Text>
                 </View>
 
                 <View style={{ gap: 16 }}>
-                    <Input label="Account Holder Name" value={holder} onChangeText={setHolder} placeholder="As per bank records" />
-                    <Input label="Account Number" value={account} onChangeText={setAccount} placeholder="Enter account number" keyboardType="number-pad" />
-                    <Input label="IFSC Code" value={ifsc} onChangeText={setIfsc} placeholder="Enter IFSC code" />
+                    <Input label={t('provider.bank.account_holder', 'Account Holder Name')} value={holder} onChangeText={setHolder} placeholder={t('provider.bank.account_holder_placeholder', 'As per bank records')} />
+                    <Input label={t('provider.bank.account_number', 'Account Number')} value={account} onChangeText={setAccount} placeholder={t('provider.bank.account_number_placeholder', 'Enter account number')} keyboardType="number-pad" />
+                    <Input label={t('provider.bank.ifsc', 'IFSC Code')} value={ifsc} onChangeText={setIfsc} placeholder={t('provider.bank.ifsc_placeholder', 'Enter IFSC code')} />
                 </View>
 
                 <View style={[styles.infoBox, { backgroundColor: theme.colors.surfaceHighlight, padding: 12, borderRadius: 8 }]}>
                     <Icon name="lock" size={16} color={theme.colors.textMuted} />
-                    <Text style={styles.infoText}>Your bank details are encrypted and secure.</Text>
+                    <Text style={styles.infoText}>{t('provider.bank.security_note', 'Your bank details are encrypted and secure.')}</Text>
                 </View>
             </ScrollView>
             <View style={styles.footer}>
                 <Button
-                    title={isSubmitting ? 'Submitting...' : 'Complete Registration'}
+                    title={isSubmitting ? t('provider.bank.submitting', 'Submitting...') : t('provider.bank.complete_registration', 'Complete Registration')}
                     onPress={handleComplete}
                     disabled={!account || !ifsc || isSubmitting}
                     width="100%"
@@ -910,14 +1212,25 @@ export const RegistrationBankScreen = ({ navigation, route }: any) => {
     );
 };
 
-const PARTNER_SERVICE_MODELS = ['Driver Network', 'Service Agency', 'Mixed Team'];
-const PARTNER_CATEGORIES = ['Driver', 'Electrician', 'Plumber', 'AC Technician', 'Mechanic'];
+const PARTNER_SERVICE_MODELS = [
+    { value: 'Driver Network', key: 'provider.partner.operations.model.driver_network' },
+    { value: 'Service Agency', key: 'provider.partner.operations.model.service_agency' },
+    { value: 'Mixed Team', key: 'provider.partner.operations.model.mixed_team' },
+];
+const PARTNER_CATEGORIES = [
+    { value: 'Driver', key: 'provider.partner.operations.category.driver' },
+    { value: 'Electrician', key: 'provider.partner.operations.category.electrician' },
+    { value: 'Plumber', key: 'provider.partner.operations.category.plumber' },
+    { value: 'AC Technician', key: 'provider.partner.operations.category.ac_technician' },
+    { value: 'Mechanic', key: 'provider.partner.operations.category.mechanic' },
+];
 const PARTNER_TYPES = [
-    { value: 'agency', label: 'Agency' },
-    { value: 'head_office', label: 'Head Office' },
+    { value: 'agency', key: 'provider.partner.company.type.agency' },
+    { value: 'head_office', key: 'provider.partner.company.type.head_office' },
 ];
 
 export const PartnerCompanyScreen = ({ navigation }: any) => {
+    const { t } = useTranslation();
     const [businessName, setBusinessName] = useState('');
     const [ownerName, setOwnerName] = useState('');
     const [city, setCity] = useState('');
@@ -927,21 +1240,21 @@ export const PartnerCompanyScreen = ({ navigation }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Header onBack={() => navigation.goBack()} title="Partner Business" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.partner.company.header', 'Partner Business')} />
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={{ marginBottom: theme.spacing.l }}>
                     <Text style={styles.title}>
-                        Set up your <Text style={{ color: theme.colors.success }}>Agency</Text>
+                        {t('provider.partner.company.title.primary', 'Set up your')} <Text style={{ color: theme.colors.success }}>{t('provider.partner.company.title.accent', 'Agency')}</Text>
                     </Text>
-                    <Text style={styles.subtitle}>Tell us who will operate this partner account and where the business runs.</Text>
+                    <Text style={styles.subtitle}>{t('provider.partner.company.subtitle', 'Tell us who will operate this partner account and where the business runs.')}</Text>
                 </View>
 
                 <View style={styles.partnerInfoBanner}>
                     <Icon name="apartment" size={20} color={theme.colors.success} />
-                    <Text style={styles.partnerInfoText}>One partner account can manage multiple drivers or service professionals.</Text>
+                    <Text style={styles.partnerInfoText}>{t('provider.partner.company.banner', 'One partner account can manage multiple drivers or service professionals.')}</Text>
                 </View>
 
-                <Text style={styles.label}>Partner Type</Text>
+                <Text style={styles.label}>{t('provider.partner.company.type_label', 'Partner Type')}</Text>
                 <View style={styles.grid}>
                     {PARTNER_TYPES.map(type => {
                         const isSelected = partnerType === type.value;
@@ -951,26 +1264,26 @@ export const PartnerCompanyScreen = ({ navigation }: any) => {
                                 style={[styles.categoryChip, isSelected && styles.partnerChipSelected]}
                                 onPress={() => setPartnerType(type.value as 'agency' | 'head_office')}
                             >
-                                <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>{type.label}</Text>
+                                <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>{t(type.key, type.value)}</Text>
                             </TouchableOpacity>
                         );
                     })}
                 </View>
 
-                <Input label="Business / Agency Name" value={businessName} onChangeText={setBusinessName} placeholder="FastTrack Services" />
-                <Input label="Owner / Manager Name" value={ownerName} onChangeText={setOwnerName} placeholder="Enter full name" />
-                <Input label="Primary City" value={city} onChangeText={setCity} placeholder="Bengaluru" />
+                <Input label={t('provider.partner.company.business_name', 'Business / Agency Name')} value={businessName} onChangeText={setBusinessName} placeholder={t('provider.partner.company.business_name_placeholder', 'FastTrack Services')} />
+                <Input label={t('provider.partner.company.owner_name', 'Owner / Manager Name')} value={ownerName} onChangeText={setOwnerName} placeholder={t('provider.partner.company.owner_name_placeholder', 'Enter full name')} />
+                <Input label={t('provider.partner.company.primary_city', 'Primary City')} value={city} onChangeText={setCity} placeholder={t('provider.partner.company.primary_city_placeholder', 'Bengaluru')} />
                 <Input
-                    label="Existing Fleet ID (Optional)"
+                    label={t('provider.partner.company.fleet_id', 'Existing Fleet ID (Optional)')}
                     value={fleetId}
                     onChangeText={(text) => setFleetId(text.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
-                    placeholder="Enter if you already have one"
+                    placeholder={t('provider.partner.company.fleet_id_placeholder', 'Enter if you already have one')}
                 />
-                <Input label="GSTIN / Business ID (Optional)" value={gstin} onChangeText={setGstin} placeholder="Business registration number" />
+                <Input label={t('provider.partner.company.gstin', 'GSTIN / Business ID (Optional)')} value={gstin} onChangeText={setGstin} placeholder={t('provider.partner.company.gstin_placeholder', 'Business registration number')} />
             </ScrollView>
             <View style={styles.footer}>
                 <Button
-                    title="Continue"
+                    title={t('common.continue', 'Continue')}
                     onPress={() => navigation.navigate('PartnerOperations', {
                         company: { businessName, ownerName, city, gstin, partnerType, fleetId },
                     })}
@@ -982,6 +1295,7 @@ export const PartnerCompanyScreen = ({ navigation }: any) => {
 };
 
 export const PartnerOperationsScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [selectedModel, setSelectedModel] = useState('');
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [coverageArea, setCoverageArea] = useState('');
@@ -990,66 +1304,66 @@ export const PartnerOperationsScreen = ({ navigation, route }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Header onBack={() => navigation.goBack()} title="Operations Setup" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.partner.operations.header', 'Operations Setup')} />
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={{ marginBottom: theme.spacing.l }}>
                     <Text style={styles.title}>
-                        How does your <Text style={{ color: theme.colors.success }}>team</Text> operate?
+                        {t('provider.partner.operations.title.primary', 'How does your')} <Text style={{ color: theme.colors.success }}>{t('provider.partner.operations.title.accent', 'team')}</Text> {t('provider.partner.operations.title.suffix', 'operate?')}
                     </Text>
-                    <Text style={styles.subtitle}>Choose your model and the kinds of workers you want to onboard under this partner account.</Text>
+                    <Text style={styles.subtitle}>{t('provider.partner.operations.subtitle', 'Choose your model and the kinds of workers you want to onboard under this partner account.')}</Text>
                 </View>
 
-                <Text style={styles.label}>Service Model</Text>
+                <Text style={styles.label}>{t('provider.partner.operations.service_model', 'Service Model')}</Text>
                 <View style={styles.grid}>
                     {PARTNER_SERVICE_MODELS.map(model => {
-                        const isSelected = selectedModel === model;
+                        const isSelected = selectedModel === model.value;
                         return (
                             <TouchableOpacity
-                                key={model}
+                                key={model.value}
                                 style={[styles.categoryChip, isSelected && styles.partnerChipSelected]}
-                                onPress={() => setSelectedModel(model)}
+                                onPress={() => setSelectedModel(model.value)}
                             >
-                                <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>{model}</Text>
+                                <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>{t(model.key, model.value)}</Text>
                             </TouchableOpacity>
                         );
                     })}
                 </View>
 
-                <Text style={styles.label}>Team Categories</Text>
+                <Text style={styles.label}>{t('provider.partner.operations.team_categories', 'Team Categories')}</Text>
                 <View style={styles.grid}>
                     {PARTNER_CATEGORIES.map(category => {
-                        const isSelected = selectedCategories.includes(category);
+                        const isSelected = selectedCategories.includes(category.value);
                         return (
                             <TouchableOpacity
-                                key={category}
+                                key={category.value}
                                 style={[styles.categoryChip, isSelected && styles.partnerChipSelected]}
                                 onPress={() => {
                                     if (isSelected) {
-                                        setSelectedCategories(prev => prev.filter(item => item !== category));
+                                        setSelectedCategories(prev => prev.filter(item => item !== category.value));
                                     } else {
-                                        setSelectedCategories(prev => [...prev, category]);
+                                        setSelectedCategories(prev => [...prev, category.value]);
                                     }
                                 }}
                             >
-                                <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>{category}</Text>
+                                <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>{t(category.key, category.value)}</Text>
                             </TouchableOpacity>
                         );
                     })}
                 </View>
 
-                <Input label="Coverage Area" value={coverageArea} onChangeText={setCoverageArea} placeholder="City, zones, or pin codes" />
+                <Input label={t('provider.partner.operations.coverage_area', 'Coverage Area')} value={coverageArea} onChangeText={setCoverageArea} placeholder={t('provider.partner.operations.coverage_area_placeholder', 'City, zones, or pin codes')} />
                 <Input
-                    label="Current Team Size"
+                    label={t('provider.partner.operations.team_size', 'Current Team Size')}
                     value={fleetSize}
                     onChangeText={(text) => setFleetSize(text.replace(/[^0-9]/g, ''))}
-                    placeholder="Number of active drivers / technicians"
+                    placeholder={t('provider.partner.operations.team_size_placeholder', 'Number of active drivers / technicians')}
                     keyboardType="number-pad"
                     maxLength={3}
                 />
             </ScrollView>
             <View style={styles.footer}>
                 <Button
-                    title="Continue"
+                    title={t('common.continue', 'Continue')}
                     onPress={() => navigation.navigate('PartnerVerification', {
                         company,
                         operations: {
@@ -1067,6 +1381,7 @@ export const PartnerOperationsScreen = ({ navigation, route }: any) => {
 };
 
 export const PartnerVerificationScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [companyDocUploaded, setCompanyDocUploaded] = useState(false);
     const [ownerIdUploaded, setOwnerIdUploaded] = useState(false);
     const [officeProofUploaded, setOfficeProofUploaded] = useState(false);
@@ -1075,17 +1390,17 @@ export const PartnerVerificationScreen = ({ navigation, route }: any) => {
 
     const uploadItems = [
         {
-            title: 'Company Registration / GST',
+            title: t('provider.partner.verification.company_doc', 'Company Registration / GST'),
             uploaded: companyDocUploaded,
             onPress: () => setCompanyDocUploaded(!companyDocUploaded)
         },
         {
-            title: 'Owner ID Proof',
+            title: t('provider.partner.verification.owner_id', 'Owner ID Proof'),
             uploaded: ownerIdUploaded,
             onPress: () => setOwnerIdUploaded(!ownerIdUploaded)
         },
         {
-            title: 'Office Address Proof',
+            title: t('provider.partner.verification.office_proof', 'Office Address Proof'),
             uploaded: officeProofUploaded,
             onPress: () => setOfficeProofUploaded(!officeProofUploaded)
         }
@@ -1093,13 +1408,13 @@ export const PartnerVerificationScreen = ({ navigation, route }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Header onBack={() => navigation.goBack()} title="Partner Verification" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.partner.verification.header', 'Partner Verification')} />
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={{ marginBottom: theme.spacing.l }}>
                     <Text style={styles.title}>
-                        Verify your <Text style={{ color: theme.colors.success }}>business</Text>
+                        {t('provider.partner.verification.title.primary', 'Verify your')} <Text style={{ color: theme.colors.success }}>{t('provider.partner.verification.title.accent', 'business')}</Text>
                     </Text>
-                    <Text style={styles.subtitle}>Upload the core documents required to activate partner mode and start adding your team.</Text>
+                    <Text style={styles.subtitle}>{t('provider.partner.verification.subtitle', 'Upload the core documents required to activate partner mode and start adding your team.')}</Text>
                 </View>
 
                 {uploadItems.map((item) => (
@@ -1116,19 +1431,19 @@ export const PartnerVerificationScreen = ({ navigation, route }: any) => {
                         </View>
                         <View style={{ flex: 1, marginLeft: 16 }}>
                             <Text style={styles.uploadTitle}>{item.title}</Text>
-                            <Text style={styles.uploadStatus}>{item.uploaded ? 'Uploaded successfully' : 'Tap to upload document'}</Text>
+                            <Text style={styles.uploadStatus}>{item.uploaded ? t('provider.partner.verification.uploaded', 'Uploaded successfully') : t('provider.partner.verification.tap_upload', 'Tap to upload document')}</Text>
                         </View>
                     </TouchableOpacity>
                 ))}
 
                 <View style={styles.verificationStatus}>
                     <Icon name="verified-user" size={20} color={theme.colors.success} />
-                    <Text style={[styles.infoText, { color: theme.colors.success, marginLeft: 8 }]}>Partner verification can be reviewed before team activation.</Text>
+                    <Text style={[styles.infoText, { color: theme.colors.success, marginLeft: 8 }]}>{t('provider.partner.verification.banner', 'Partner verification can be reviewed before team activation.')}</Text>
                 </View>
             </ScrollView>
             <View style={styles.footer}>
                 <Button
-                    title="Continue"
+                    title={t('common.continue', 'Continue')}
                     onPress={() => navigation.navigate('PartnerTeam', {
                         company,
                         operations,
@@ -1146,6 +1461,7 @@ export const PartnerVerificationScreen = ({ navigation, route }: any) => {
 };
 
 export const PartnerTeamScreen = ({ navigation, route }: any) => {
+    const { t } = useTranslation();
     const [teamLeadName, setTeamLeadName] = useState('');
     const [supportPhone, setSupportPhone] = useState('');
     const [teamCapacity, setTeamCapacity] = useState('');
@@ -1165,13 +1481,19 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
         });
 
         if (!profileResult.success) {
-            Alert.alert('Profile Update Failed', profileResult.error || 'Could not save partner owner profile.');
+            Alert.alert(
+                t('provider.partner.team.profile_update_failed_title', 'Profile Update Failed'),
+                profileResult.error || t('provider.partner.team.profile_update_failed_message', 'Could not save partner owner profile.')
+            );
             return;
         }
 
         const serviceResolution = await resolveServiceIds(operations?.selectedCategories || []);
         if (!serviceResolution.success) {
-            Alert.alert('Service Mapping Failed', serviceResolution.error || 'Could not map partner services.');
+            Alert.alert(
+                t('provider.partner.team.service_mapping_failed_title', 'Service Mapping Failed'),
+                serviceResolution.error || t('provider.partner.team.service_mapping_failed_message', 'Could not map partner services.')
+            );
             return;
         }
 
@@ -1203,7 +1525,10 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
         });
 
         if (!result.success) {
-            Alert.alert('Partner Registration Failed', result.error || 'Unable to create partner provider profile.');
+            Alert.alert(
+                t('provider.partner.team.registration_failed_title', 'Partner Registration Failed'),
+                result.error || t('provider.partner.team.registration_failed_message', 'Unable to create partner provider profile.')
+            );
             return;
         }
 
@@ -1215,43 +1540,43 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Header onBack={() => navigation.goBack()} title="Team Setup" />
+            <Header onBack={() => navigation.goBack()} title={t('provider.partner.team.header', 'Team Setup')} />
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={{ marginBottom: theme.spacing.l }}>
                     <Text style={styles.title}>
-                        Add your first <Text style={{ color: theme.colors.success }}>team details</Text>
+                        {t('provider.partner.team.title.primary', 'Add your first')} <Text style={{ color: theme.colors.success }}>{t('provider.partner.team.title.accent', 'team details')}</Text>
                     </Text>
-                    <Text style={styles.subtitle}>This sets up the partner account for allocating jobs to your drivers or technicians.</Text>
+                    <Text style={styles.subtitle}>{t('provider.partner.team.subtitle', 'This sets up the partner account for allocating jobs to your drivers or technicians.')}</Text>
                 </View>
 
-                <Input label="Operations Lead" value={teamLeadName} onChangeText={setTeamLeadName} placeholder="Team manager or dispatcher name" />
+                <Input label={t('provider.partner.team.operations_lead', 'Operations Lead')} value={teamLeadName} onChangeText={setTeamLeadName} placeholder={t('provider.partner.team.operations_lead_placeholder', 'Team manager or dispatcher name')} />
                 <Input
-                    label="Support Phone"
+                    label={t('provider.partner.team.support_phone', 'Support Phone')}
                     value={supportPhone}
                     onChangeText={(text) => setSupportPhone(text.replace(/[^0-9]/g, ''))}
-                    placeholder="Partner support number"
+                    placeholder={t('provider.partner.team.support_phone_placeholder', 'Partner support number')}
                     keyboardType="phone-pad"
                     maxLength={10}
                 />
                 <Input
-                    label="Max Concurrent Jobs"
+                    label={t('provider.partner.team.max_jobs', 'Max Concurrent Jobs')}
                     value={teamCapacity}
                     onChangeText={(text) => setTeamCapacity(text.replace(/[^0-9]/g, ''))}
-                    placeholder="How many jobs can your team handle at once?"
+                    placeholder={t('provider.partner.team.max_jobs_placeholder', 'How many jobs can your team handle at once?')}
                     keyboardType="number-pad"
                     maxLength={3}
                 />
                 <Input
-                    label="Notes for Admin Review"
+                    label={t('provider.partner.team.notes', 'Notes for Admin Review')}
                     value={notes}
                     onChangeText={setNotes}
-                    placeholder="Any extra information about your team, fleet, or service model"
+                    placeholder={t('provider.partner.team.notes_placeholder', 'Any extra information about your team, fleet, or service model')}
                     multiline
                 />
             </ScrollView>
             <View style={styles.footer}>
                 <Button
-                    title={isSubmitting ? 'Submitting...' : 'Complete Partner Registration'}
+                    title={isSubmitting ? t('provider.partner.team.submitting', 'Submitting...') : t('provider.partner.team.complete_registration', 'Complete Partner Registration')}
                     onPress={handleComplete}
                     disabled={!teamLeadName || supportPhone.length < 10 || !teamCapacity || isSubmitting}
                     variant="success"
@@ -1276,25 +1601,18 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     content: {
-        flex: 1,
         padding: theme.spacing.xl,
+    },
+    compactContent: {
+        paddingHorizontal: theme.spacing.l,
+        paddingVertical: theme.spacing.l,
+    },
+    authScrollContent: {
+        flexGrow: 1,
+        paddingBottom: theme.spacing.m,
     },
     scrollContent: {
         padding: theme.spacing.xl,
-    },
-    headerRow: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        paddingHorizontal: theme.spacing.m,
-        paddingTop: theme.spacing.m,
-    },
-    pageNumber: {
-        fontSize: 12,
-        fontWeight: 'bold',
-        color: theme.colors.error, // Red for visibility
-        backgroundColor: 'rgba(255,0,0,0.1)',
-        padding: 4,
-        borderRadius: 4,
     },
     langButton: {
         flexDirection: 'row',
@@ -1318,11 +1636,39 @@ const styles = StyleSheet.create({
         color: theme.colors.text,
         marginBottom: 4, // Tighter spacing
     },
+    compactTitle: {
+        fontSize: 32,
+    },
     subtitle: {
         fontSize: 16,
         color: theme.colors.textSecondary,
         marginBottom: theme.spacing.xl,
         marginTop: 8,
+    },
+    compactSubtitle: {
+        marginBottom: theme.spacing.l,
+        marginTop: 6,
+    },
+    heroContainer: {
+        alignItems: 'center',
+        marginBottom: theme.spacing.l,
+    },
+    compactHeroContainer: {
+        marginBottom: theme.spacing.m,
+    },
+    heroImage: {
+        width: 250,
+        height: 260,
+    },
+    compactHeroImage: {
+        width: 190,
+        height: 190,
+    },
+    authIntro: {
+        marginBottom: theme.spacing.xl,
+    },
+    compactAuthIntro: {
+        marginBottom: theme.spacing.l,
     },
     inputContainer: {
         flexDirection: 'row',
@@ -1351,6 +1697,15 @@ const styles = StyleSheet.create({
         marginTop: theme.spacing.l,
         color: theme.colors.textMuted,
         fontSize: 14,
+        paddingBottom: 20,
+    },
+    keyboardActionWrap: {
+        marginTop: theme.spacing.xxl,
+        marginBottom: theme.spacing.m,
+    },
+    compactHelperText: {
+        marginTop: theme.spacing.m,
+        paddingBottom: theme.spacing.s,
     },
     fleetCheckButton: {
         flexDirection: 'row',
@@ -1394,33 +1749,97 @@ const styles = StyleSheet.create({
         marginBottom: theme.spacing.s,
         fontWeight: '600',
     },
-    testOtpBox: {
-        marginTop: theme.spacing.m,
-        backgroundColor: 'rgba(99, 102, 241, 0.08)',
+    suggestionList: {
+        backgroundColor: theme.colors.surface,
         borderWidth: 1,
-        borderColor: 'rgba(99, 102, 241, 0.25)',
+        borderColor: theme.colors.border,
         borderRadius: theme.borderRadius.m,
-        paddingVertical: theme.spacing.s,
-        paddingHorizontal: theme.spacing.l,
-        alignItems: 'center',
+        marginTop: -4,
+        marginBottom: theme.spacing.m,
+        overflow: 'hidden',
     },
-    testOtpLabel: {
+    suggestionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: theme.spacing.m,
+        paddingVertical: theme.spacing.m,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.border,
+        gap: theme.spacing.s,
+    },
+    suggestionText: {
+        flex: 1,
+        color: theme.colors.text,
+    },
+    inlineStatusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.spacing.s,
+        marginTop: -4,
+        marginBottom: theme.spacing.m,
+    },
+    inlineStatusText: {
         color: theme.colors.textSecondary,
-        fontSize: 12,
-        textTransform: 'uppercase',
+        fontSize: 13,
+    },
+    infoBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.spacing.s,
+        backgroundColor: theme.colors.surfaceHighlight,
+        borderRadius: theme.borderRadius.m,
+        padding: theme.spacing.m,
+        marginBottom: theme.spacing.m,
+    },
+    infoBannerText: {
+        color: theme.colors.textSecondary,
+        flex: 1,
+    },
+    errorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.spacing.s,
+        backgroundColor: 'rgba(220, 38, 38, 0.08)',
+        borderColor: 'rgba(220, 38, 38, 0.18)',
+        borderWidth: 1,
+        borderRadius: theme.borderRadius.m,
+        padding: theme.spacing.m,
+        marginBottom: theme.spacing.m,
+    },
+    errorBannerText: {
+        color: theme.colors.error,
+        flex: 1,
+        fontWeight: '600',
+    },
+    successBanner: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: theme.spacing.s,
+        backgroundColor: 'rgba(22, 163, 74, 0.10)',
+        borderColor: 'rgba(22, 163, 74, 0.24)',
+        borderWidth: 1,
+        borderRadius: theme.borderRadius.m,
+        padding: theme.spacing.m,
+        marginBottom: theme.spacing.m,
+    },
+    successBannerTitle: {
+        color: theme.colors.success,
+        fontWeight: '700',
         marginBottom: 4,
     },
-    testOtpValue: {
-        color: theme.colors.primary,
-        fontSize: 28,
-        fontWeight: '800',
-        letterSpacing: 6,
+    successBannerText: {
+        color: theme.colors.textSecondary,
     },
     footer: {
         padding: theme.spacing.xl,
         // borderTopWidth: 1,
         // borderTopColor: theme.colors.border,
         marginBottom: theme.spacing.s,
+    },
+    compactFooter: {
+        paddingHorizontal: theme.spacing.l,
+        paddingTop: theme.spacing.m,
+        paddingBottom: theme.spacing.m,
     },
     resendButton: {
         alignItems: 'center',
@@ -1436,6 +1855,53 @@ const styles = StyleSheet.create({
     avatarContainer: {
         alignItems: 'center',
         marginBottom: theme.spacing.xl,
+    },
+    avatarButton: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: theme.colors.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: theme.colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 5,
+        borderWidth: 4,
+        borderColor: '#fff',
+    },
+    avatarInner: {
+        width: 112,
+        height: 112,
+        borderRadius: 56,
+        backgroundColor: 'rgba(99, 102, 241, 0.10)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+    },
+    avatarImage: {
+        width: '100%',
+        height: '100%',
+    },
+    avatarLoadingOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(15, 23, 42, 0.35)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarBadge: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: theme.colors.primary,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 3,
+        borderColor: '#fff',
     },
     avatarPlaceholder: {
         width: 120,

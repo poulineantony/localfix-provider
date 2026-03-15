@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { theme } from '../config/theme';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../context/TranslationContext';
 
 // Auth Screens
 import { WelcomeScreen, ModeSelectionScreen, HowItWorksScreen, RequirementsScreen } from '../screens/auth/OnboardingScreens';
@@ -57,6 +58,8 @@ const HomeStack = () => {
 
 // 3. Main App Tabs
 const AppTabs = () => {
+    const { t } = useTranslation();
+
     return (
         <Tab.Navigator
             screenOptions={({ route }) => ({
@@ -87,16 +90,16 @@ const AppTabs = () => {
                 },
             })}
         >
-            <Tab.Screen name="Home" component={HomeStack} options={{ title: 'Home' }} />
+            <Tab.Screen name="Home" component={HomeStack} options={{ title: t('nav.home', 'Home') }} />
             {/* For now, Jobs tab can just be a filtered view of Home, but let's mock it or hide if redundant. User asked for it though. */}
             {/* We can reuse HomeStack for Jobs tab too if needed, or create a simple list screen */}
-            <Tab.Screen name="Jobs" component={HomeStack} options={{ title: 'My Jobs' }} listeners={({ navigation }) => ({
+            <Tab.Screen name="Jobs" component={HomeStack} options={{ title: t('provider.nav.jobs', 'My Jobs') }} listeners={({ navigation }) => ({
                 tabPress: (e) => {
                     // Optional: Reset stack or pass params
                 },
             })} />
-            <Tab.Screen name="Earnings" component={EarningsScreen} />
-            <Tab.Screen name="Profile" component={ProfileScreen} />
+            <Tab.Screen name="Earnings" component={EarningsScreen} options={{ title: t('provider.nav.earnings', 'Earnings') }} />
+            <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: t('profile.title', 'Profile') }} />
         </Tab.Navigator>
     );
 };
