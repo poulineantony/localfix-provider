@@ -12,6 +12,7 @@ export interface AuthUser {
     roles: string[];
     avatar?: string;
     isVerified?: boolean;
+    isEmailVerified?: boolean;
 }
 
 interface AuthPayload {
@@ -51,9 +52,32 @@ export const authService = {
         return apiClient.get<AuthUser>(API_ENDPOINTS.auth.me);
     },
 
+    async refreshToken(): Promise<ApiResult<{ token: string; refreshToken: string }>> {
+        const currentRefreshToken = apiClient.getRefreshToken();
+        if (!currentRefreshToken) {
+            return { success: false, error: 'No refresh token available' };
+        }
+        const result = await apiClient.post<{ token: string; refreshToken: string }>(
+            API_ENDPOINTS.auth.refresh,
+            { refreshToken: currentRefreshToken },
+        );
+        if (result.success && result.data) {
+            apiClient.setTokens(result.data.token, result.data.refreshToken);
+        }
+        return result;
+    },
+
     async logout() {
         const result = await apiClient.post(API_ENDPOINTS.auth.logout);
         apiClient.clearTokens();
         return result;
+    },
+
+    async resendEmailVerification(): Promise<ApiResult<unknown>> {
+        return apiClient.post(API_ENDPOINTS.auth.resendEmailVerification);
+    },
+
+    async updateEmail(email: string): Promise<ApiResult<unknown>> {
+        return apiClient.put(API_ENDPOINTS.users.profile, { email });
     },
 };

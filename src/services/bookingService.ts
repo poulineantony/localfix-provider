@@ -28,6 +28,10 @@ export interface BookingItem {
         state?: string;
         zipCode?: string;
         landmark?: string;
+        coordinates?: {
+            latitude: number;
+            longitude: number;
+        };
     };
     status: 'pending' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'rescheduled';
     pricing?: {

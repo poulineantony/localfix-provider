@@ -16,6 +16,23 @@ import { userService } from '../../services/userService';
 import { serviceService, ServiceCategoryItem, ServiceItem } from '../../services/serviceService';
 
 type RegistrationAccountType = 'individual' | 'fleet_member';
+type VerificationDocumentType =
+    | 'aadhaar'
+    | 'driving-license'
+    | 'passport-or-voter-id'
+    | 'skill-certificate'
+    | 'selfie'
+    | 'company-registration'
+    | 'owner-id'
+    | 'office-proof';
+type UploadedVerificationDocument = {
+    type: VerificationDocumentType;
+    documentUrl: string;
+    localUri?: string;
+    fileName?: string;
+    mimeType?: string;
+};
+type UploadedVerificationDocumentMap = Partial<Record<VerificationDocumentType, UploadedVerificationDocument>>;
 
 type RegistrationLocation = {
     addressLine: string;
@@ -30,6 +47,24 @@ type RegistrationLocation = {
     zoneId?: string;
     zoneName?: string;
 };
+
+const FieldLabel = ({
+    text,
+    required = false,
+    optional = false,
+    style,
+}: {
+    text: string;
+    required?: boolean;
+    optional?: boolean;
+    style?: any;
+}) => (
+    <Text style={[styles.label, style]}>
+        {text}
+        {required ? <Text style={styles.requiredMark}> *</Text> : null}
+        {!required && optional ? <Text style={styles.optionalText}> (Optional)</Text> : null}
+    </Text>
+);
 
 const getAccountType = (route: any): RegistrationAccountType => {
     return route?.params?.accountType === 'fleet_member' ? 'fleet_member' : 'individual';
@@ -113,14 +148,14 @@ const resolveServiceIds = async (categories: string[]) => {
     };
 };
 
-const buildAvatarUploadPayload = (asset: Asset) => {
+const buildUploadPayload = (asset: Asset, prefix: string) => {
     if (!asset.uri) {
         return null;
     }
 
     const fallbackExtension = asset.type?.split('/')[1] || 'jpg';
     const sanitizedExtension = fallbackExtension.replace(/[^a-zA-Z0-9]/g, '') || 'jpg';
-    const name = asset.fileName || `provider-avatar-${Date.now()}.${sanitizedExtension}`;
+    const name = asset.fileName || `${prefix}-${Date.now()}.${sanitizedExtension}`;
 
     return {
         uri: asset.uri,
@@ -128,6 +163,25 @@ const buildAvatarUploadPayload = (asset: Asset) => {
         type: asset.type || 'image/jpeg',
     };
 };
+
+const buildAvatarUploadPayload = (asset: Asset) => buildUploadPayload(asset, 'provider-avatar');
+
+const buildDocumentUploadPayload = (asset: Asset, documentType: VerificationDocumentType) =>
+    buildUploadPayload(asset, `provider-${documentType}`);
+
+const mapVerificationDocumentsToUploadMap = (documents: Array<{ type?: string; documentUrl?: string }> = []): UploadedVerificationDocumentMap =>
+    documents.reduce<UploadedVerificationDocumentMap>((accumulator, document) => {
+        if (!document?.type || !document?.documentUrl) {
+            return accumulator;
+        }
+
+        accumulator[document.type as VerificationDocumentType] = {
+            type: document.type as VerificationDocumentType,
+            documentUrl: document.documentUrl,
+        };
+
+        return accumulator;
+    }, {});
 
 // 1. Phone Login
 export const RegistrationPhoneScreen = ({ navigation, route }: any) => {
@@ -307,7 +361,7 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
     };
 
     const handleVerifyOtp = async () => {
-        const result = await verifyOtp(phone, otp);
+        const result = await verifyOtp(phone, otp, accountType);
 
         if (!result.success) {
             Alert.alert(t('common.error', 'Error'), result.error || t('provider.auth.otp.invalid', 'Invalid OTP'));
@@ -403,21 +457,24 @@ export const RegistrationOTPScreen = ({ navigation, route }: any) => {
 // 3. Personal Details
 export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
     const { t } = useTranslation();
-    const [name, setName] = useState('');
-    const [day, setDay] = useState('');
-    const [month, setMonth] = useState('');
-    const [year, setYear] = useState('');
-    const [fleetId, setFleetId] = useState('');
-    const [linkedFleetName, setLinkedFleetName] = useState('');
+    const { user, provider, saveProviderDraft } = useAuth();
+    const draftPersonal = provider?.onboarding?.draft?.personal;
+    const routePersonal = route?.params?.personal || {};
+    const [name, setName] = useState(routePersonal.name || draftPersonal?.name || user?.name || '');
+    const [day, setDay] = useState(routePersonal.day || draftPersonal?.day || '');
+    const [month, setMonth] = useState(routePersonal.month || draftPersonal?.month || '');
+    const [year, setYear] = useState(routePersonal.year || draftPersonal?.year || '');
+    const [fleetId, setFleetId] = useState(routePersonal.fleetId || draftPersonal?.fleetId || '');
+    const [linkedFleetName, setLinkedFleetName] = useState(routePersonal.linkedFleetName || draftPersonal?.linkedFleetName || '');
     const [fleetIdError, setFleetIdError] = useState('');
     const [isCheckingFleet, setIsCheckingFleet] = useState(false);
     const [showYearPicker, setShowYearPicker] = useState(false);
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
-    const { user } = useAuth();
-    const [avatarUrl, setAvatarUrl] = useState(user?.avatar || '');
+    const [avatarUrl, setAvatarUrl] = useState(routePersonal.avatar || draftPersonal?.avatar || user?.avatar || '');
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [isSavingDraft, setIsSavingDraft] = useState(false);
     const accountType = getAccountType(route);
-    const phone = route?.params?.phone || '';
+    const phone = route?.params?.phone || user?.phone || '';
 
     useEffect(() => {
         const keyboardDidShowListener = Keyboard.addListener(
@@ -568,6 +625,35 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
             return;
         }
 
+        setIsSavingDraft(true);
+        const draftResult = await saveProviderDraft({
+            providerMode: accountType,
+            onboarding: {
+                currentStage: 'service',
+                isComplete: false,
+                draft: {
+                    personal: {
+                        name,
+                        day,
+                        month,
+                        year,
+                        avatar: avatarUrl,
+                        fleetId,
+                        linkedFleetName,
+                    },
+                },
+            },
+        });
+        setIsSavingDraft(false);
+
+        if (!draftResult.success) {
+            Alert.alert(
+                t('provider.personal.save_failed_title', 'Unable to Save'),
+                draftResult.error || t('provider.personal.save_failed_message', 'Could not save your onboarding progress right now.')
+            );
+            return;
+        }
+
         navigation.navigate('RegistrationService', {
             accountType,
             phone,
@@ -618,6 +704,7 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                     <View style={{ gap: 16, marginTop: isKeyboardVisible ? 60 : 0 }}>
                         <Input
                             label={t('profile.full_name', 'Full Name')}
+                            required
                             value={name}
                             onChangeText={setName}
                             placeholder={t('provider.personal.name_placeholder', 'John Doe')}
@@ -626,6 +713,7 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                             <View>
                                 <Input
                                     label={t('provider.personal.fleet.label', 'Fleet ID')}
+                                    required
                                     value={fleetId}
                                     onChangeText={(text) => {
                                         setFleetId(text.toUpperCase().replace(/[^A-Z0-9_-]/g, ''));
@@ -662,7 +750,11 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                         ) : null}
 
                         <View>
-                            <Text style={{ color: theme.colors.textSecondary, marginBottom: 8, fontWeight: '600', fontSize: 14 }}>{t('provider.personal.dob', 'Date of Birth')}</Text>
+                            <FieldLabel
+                                text={t('provider.personal.dob', 'Date of Birth')}
+                                required
+                                style={{ marginBottom: 8, fontSize: 14 }}
+                            />
                             <View style={{ flexDirection: 'row', gap: 12 }}>
                                 <View style={{ flex: 1 }}>
                                     <Input
@@ -748,9 +840,9 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
                     <Button
                         title={t('common.continue', 'Continue')}
                         onPress={handleContinue}
-                        disabled={!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId) || isUploadingAvatar}
+                        disabled={!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId) || isUploadingAvatar || isSavingDraft}
                         icon={<Icon name="arrow-forward" size={20} color="#fff" />}
-                        style={{ backgroundColor: (!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId) || isUploadingAvatar) ? theme.colors.surfaceHighlight : theme.colors.primary }}
+                        style={{ backgroundColor: (!name || !day || !month || !year || (accountType === 'fleet_member' && !fleetId) || isUploadingAvatar || isSavingDraft) ? theme.colors.surfaceHighlight : theme.colors.primary }}
                     />
                 </View>
             </KeyboardAvoidingView>
@@ -761,17 +853,36 @@ export const RegistrationPersonalScreen = ({ navigation, route }: any) => {
 // 4. Service Details
 export const RegistrationServiceScreen = ({ navigation, route }: any) => {
     const { t } = useTranslation();
-    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-    const [experience, setExperience] = useState('');
-    const [addressQuery, setAddressQuery] = useState('');
-    const [selectedLocation, setSelectedLocation] = useState<RegistrationLocation | null>(null);
+    const { provider, saveProviderDraft } = useAuth();
+    const routeServiceDetails = route?.params?.serviceDetails || {};
+    const draftService = provider?.onboarding?.draft?.service;
+    const initialLocation = routeServiceDetails.location || (draftService?.location ? {
+        addressLine: draftService.location.addressLine,
+        street: draftService.location.street,
+        city: draftService.location.city,
+        state: draftService.location.state,
+        country: draftService.location.country,
+        zipCode: draftService.location.zipCode,
+        placeId: draftService.location.placeId,
+        latitude: draftService.location.latitude,
+        longitude: draftService.location.longitude,
+        zoneId: draftService.location.zoneId,
+        zoneName: draftService.location.zoneName,
+    } : null);
+    const [selectedCategories, setSelectedCategories] = useState<string[]>(routeServiceDetails.selectedCategoryValues || draftService?.selectedCategoryValues || []);
+    const [experience, setExperience] = useState(routeServiceDetails.experience || draftService?.experience || '');
+    const [addressQuery, setAddressQuery] = useState(routeServiceDetails.location?.addressLine || draftService?.location?.addressLine || '');
+    const [selectedLocation, setSelectedLocation] = useState<RegistrationLocation | null>(initialLocation);
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
     const [availableCategories, setAvailableCategories] = useState<ServiceCategoryItem[]>([]);
     const [isLoadingCategories, setIsLoadingCategories] = useState(true);
     const [categoryLoadError, setCategoryLoadError] = useState('');
+    const [categoryLoadAttempt, setCategoryLoadAttempt] = useState(0);
+    const [isSavingDraft, setIsSavingDraft] = useState(false);
     const accountType = getAccountType(route);
-    const phone = route?.params?.phone || '';
-    const personal = route?.params?.personal;
+    const phone = route?.params?.phone
+        || ((provider?.user && typeof provider.user !== 'string') ? provider.user.phone || '' : '');
+    const personal = route?.params?.personal || provider?.onboarding?.draft?.personal;
 
     useEffect(() => {
         const keyboardDidShowListener = Keyboard.addListener(
@@ -800,34 +911,85 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
             setIsLoadingCategories(true);
             setCategoryLoadError('');
 
-            const categoryResult = await serviceService.getCategories();
+            try {
+                const categoryRequest = serviceService.getCategories().then((result) => ({
+                    source: 'categories' as const,
+                    success: result.success,
+                    error: result.error,
+                    categories: Array.isArray(result.data)
+                        ? result.data.filter((category) => category.value && Array.isArray(category.services) && category.services.length > 0)
+                        : [],
+                }));
 
-            if (categoryResult.success && categoryResult.data?.length) {
-                if (isMounted) {
-                    setAvailableCategories(categoryResult.data);
-                    setIsLoadingCategories(false);
+                const servicesRequest = serviceService.getAll().then((result) => ({
+                    source: 'services' as const,
+                    success: result.success,
+                    error: result.error,
+                    categories: result.success && Array.isArray(result.data)
+                        ? buildCategoriesFromServices(result.data)
+                        : [],
+                }));
+
+                const firstResult = await Promise.race([categoryRequest, servicesRequest]);
+
+                if (!isMounted) {
+                    return;
                 }
-                return;
-            }
 
-            const servicesResult = await serviceService.getAll();
-
-            if (servicesResult.success && servicesResult.data?.length) {
-                if (isMounted) {
-                    setAvailableCategories(buildCategoriesFromServices(servicesResult.data));
+                if (firstResult.categories.length > 0) {
+                    setAvailableCategories(firstResult.categories);
                     setIsLoadingCategories(false);
+                    return;
                 }
-                return;
-            }
 
-            if (isMounted) {
+                if (firstResult.success) {
+                    setAvailableCategories([]);
+                    setCategoryLoadError('');
+                    setIsLoadingCategories(false);
+                    return;
+                }
+
+                const secondResult = await (
+                    firstResult.source === 'categories'
+                        ? servicesRequest
+                        : categoryRequest
+                );
+
+                if (!isMounted) {
+                    return;
+                }
+
+                if (secondResult.categories.length > 0) {
+                    setAvailableCategories(secondResult.categories);
+                    setIsLoadingCategories(false);
+                    return;
+                }
+
                 setAvailableCategories([]);
-                if (!categoryResult.success && !servicesResult.success) {
-                    setCategoryLoadError(categoryResult.error || servicesResult.error || t('provider.service.categories_error', 'Unable to load service categories right now.'));
+                if (!firstResult.success && !secondResult.success) {
+                    setCategoryLoadError(
+                        firstResult.error
+                        || secondResult.error
+                        || t('provider.service.categories_error', 'Unable to load service categories right now.')
+                    );
                 } else {
                     setCategoryLoadError('');
                 }
-                setIsLoadingCategories(false);
+            } catch (error) {
+                if (!isMounted) {
+                    return;
+                }
+
+                setAvailableCategories([]);
+                setCategoryLoadError(
+                    error instanceof Error
+                        ? error.message
+                        : t('provider.service.categories_error', 'Unable to load service categories right now.')
+                );
+            } finally {
+                if (isMounted) {
+                    setIsLoadingCategories(false);
+                }
             }
         };
 
@@ -836,9 +998,52 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
         return () => {
             isMounted = false;
         };
-    }, []);
+    }, [categoryLoadAttempt, t]);
 
     const canContinue = !!selectedLocation?.addressLine && selectedCategories.length > 0 && !!experience;
+
+    const handleNextStep = async () => {
+        if (!canContinue) {
+            return;
+        }
+
+        setIsSavingDraft(true);
+        const draftResult = await saveProviderDraft({
+            providerMode: accountType,
+            onboarding: {
+                currentStage: 'documents',
+                isComplete: false,
+                draft: {
+                    service: {
+                        selectedCategoryValues: selectedCategories,
+                        experience,
+                        location: selectedLocation || undefined,
+                    },
+                },
+            },
+        });
+        setIsSavingDraft(false);
+
+        if (!draftResult.success) {
+            Alert.alert(
+                t('provider.service.save_failed_title', 'Unable to Save'),
+                draftResult.error || t('provider.service.save_failed_message', 'Could not save your onboarding progress right now.')
+            );
+            return;
+        }
+
+        navigation.navigate('RegistrationDocuments', {
+            accountType,
+            phone,
+            personal,
+            serviceDetails: {
+                selectedCategoryValues: selectedCategories,
+                availableCategories,
+                experience,
+                location: selectedLocation,
+            },
+        });
+    };
 
     return (
         <SafeAreaView style={styles.container}>
@@ -858,6 +1063,7 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
 
                     <Input
                         label={t('provider.service.address_label', 'Work Address')}
+                        required
                         value={addressQuery}
                         onChangeText={(text) => {
                             setAddressQuery(text);
@@ -884,6 +1090,7 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
                     <View style={{ gap: 16, marginTop: theme.spacing.m }}>
                         <Input
                             label={t('provider.service.experience_label', 'Experience (Years)')}
+                            required
                             value={experience}
                             onChangeText={(text) => setExperience(text.replace(/[^0-9]/g, ''))}
                             placeholder={t('provider.service.experience_placeholder', 'e.g. 5')}
@@ -892,7 +1099,11 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
                         />
                     </View>
 
-                    <Text style={[styles.label, { marginTop: theme.spacing.l }]}>{t('provider.service.categories_label', 'Available Categories')}</Text>
+                    <FieldLabel
+                        text={t('provider.service.categories_label', 'Available Categories')}
+                        required
+                        style={{ marginTop: theme.spacing.l }}
+                    />
                     {isLoadingCategories ? (
                         <View style={styles.inlineStatusRow}>
                             <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -928,9 +1139,17 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
                             })}
                         </View>
                     ) : categoryLoadError ? (
-                        <View style={styles.errorBanner}>
-                            <Icon name="error-outline" size={18} color={theme.colors.error} />
-                            <Text style={styles.errorBannerText}>{categoryLoadError}</Text>
+                        <View>
+                            <View style={styles.errorBanner}>
+                                <Icon name="error-outline" size={18} color={theme.colors.error} />
+                                <Text style={styles.errorBannerText}>{categoryLoadError}</Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => setCategoryLoadAttempt((current) => current + 1)}
+                                style={styles.retryAction}
+                            >
+                                <Text style={styles.retryActionText}>{t('common.retry', 'Retry')}</Text>
+                            </TouchableOpacity>
                         </View>
                     ) : (
                         <View style={styles.infoBanner}>
@@ -946,20 +1165,10 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
                 <View style={styles.footer}>
                     <Button
                         title={t('provider.service.next_step', 'Next Step')}
-                        onPress={() => navigation.navigate('RegistrationDocuments', {
-                            accountType,
-                            phone,
-                            personal,
-                            serviceDetails: {
-                                selectedCategoryValues: selectedCategories,
-                                availableCategories,
-                                experience,
-                                location: selectedLocation,
-                            },
-                        })}
-                        disabled={!canContinue}
+                        onPress={handleNextStep}
+                        disabled={!canContinue || isSavingDraft}
                         icon={<Icon name="build" size={20} color="#fff" />}
-                        style={{ backgroundColor: canContinue ? theme.colors.primary : theme.colors.surfaceHighlight }}
+                        style={{ backgroundColor: (canContinue && !isSavingDraft) ? theme.colors.primary : theme.colors.surfaceHighlight }}
                     />
                 </View>
             </KeyboardAvoidingView>
@@ -970,46 +1179,161 @@ export const RegistrationServiceScreen = ({ navigation, route }: any) => {
 // 5. Document Upload
 export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
     const { t } = useTranslation();
-    const [aadhaarUploaded, setAadhaarUploaded] = useState(false);
-    const [drivingLicenseUploaded, setDrivingLicenseUploaded] = useState(false);
-    const [passportUploaded, setPassportUploaded] = useState(false);
-    const [skillCertificateUploaded, setSkillCertificateUploaded] = useState(false);
-    const [selfieUploaded, setSelfieUploaded] = useState(false);
+    const { provider, saveProviderDraft } = useAuth();
+    const initialDocuments = route?.params?.documents && typeof route.params.documents === 'object'
+        ? route.params.documents as UploadedVerificationDocumentMap
+        : mapVerificationDocumentsToUploadMap(provider?.verification?.documents || []);
+    const [uploadedDocuments, setUploadedDocuments] = useState<UploadedVerificationDocumentMap>(initialDocuments);
+    const [uploadingDocumentType, setUploadingDocumentType] = useState<VerificationDocumentType | null>(null);
+    const [isSavingDraft, setIsSavingDraft] = useState(false);
     const accountType = getAccountType(route);
-    const phone = route?.params?.phone || '';
-    const personal = route?.params?.personal;
-    const serviceDetails = route?.params?.serviceDetails;
-    const hasMandatoryIdDocument = aadhaarUploaded || drivingLicenseUploaded || passportUploaded;
+    const phone = route?.params?.phone || ((provider?.user && typeof provider.user !== 'string') ? provider.user.phone || '' : '');
+    const personal = route?.params?.personal || provider?.onboarding?.draft?.personal;
+    const serviceDetails = route?.params?.serviceDetails || provider?.onboarding?.draft?.service;
+    const hasMandatoryIdDocument = Boolean(
+        uploadedDocuments.aadhaar?.documentUrl
+        || uploadedDocuments['driving-license']?.documentUrl
+        || uploadedDocuments['passport-or-voter-id']?.documentUrl
+    );
 
-    const handleTakeSelfie = () => {
-        Alert.alert(
-            t('provider.documents.selfie_title', 'Take Selfie'),
-            t('provider.documents.selfie_message', 'Opening Camera for direct selfie...'),
-            [
-                { text: t('provider.documents.capture', 'Capture'), onPress: () => setSelfieUploaded(!selfieUploaded) },
-                { text: t('common.cancel', 'Cancel'), style: "cancel" }
-            ]
-        );
+    const handleUploadDocument = async (documentType: VerificationDocumentType) => {
+        const pickerResult = await launchImageLibrary({
+            mediaType: 'photo',
+            selectionLimit: 1,
+            quality: 0.8,
+            maxWidth: 1800,
+            maxHeight: 1800,
+        });
+
+        if (pickerResult.didCancel) {
+            return;
+        }
+
+        if (pickerResult.errorCode) {
+            Alert.alert(
+                t('provider.documents.upload_failed_title', 'Upload Failed'),
+                pickerResult.errorMessage || t('provider.documents.upload_failed_open', 'Could not open your photo library.')
+            );
+            return;
+        }
+
+        const selectedAsset = pickerResult.assets?.[0];
+        const uploadPayload = selectedAsset ? buildDocumentUploadPayload(selectedAsset, documentType) : null;
+
+        if (!uploadPayload) {
+            Alert.alert(
+                t('provider.documents.upload_failed_title', 'Upload Failed'),
+                t('provider.documents.upload_failed_prepare', 'Could not prepare the selected document.')
+            );
+            return;
+        }
+
+        setUploadingDocumentType(documentType);
+
+        const uploadResult = await providerService.uploadVerificationDocument(documentType, uploadPayload);
+
+        if (!uploadResult.success || !uploadResult.data?.documentUrl) {
+            setUploadingDocumentType(null);
+            Alert.alert(
+                t('provider.documents.upload_failed_title', 'Upload Failed'),
+                uploadResult.error || t('provider.documents.upload_failed_server', 'Could not upload the selected document.')
+            );
+            return;
+        }
+
+        setUploadedDocuments((current) => ({
+            ...current,
+            [documentType]: {
+                type: documentType,
+                documentUrl: uploadResult.data?.documentUrl,
+                localUri: uploadPayload.uri,
+                fileName: uploadResult.data?.originalName || uploadPayload.name,
+                mimeType: uploadResult.data?.mimeType || uploadPayload.type,
+            },
+        }));
+        setUploadingDocumentType(null);
     };
 
-    const UploadCard = ({ title, uploaded, onPress }: any) => (
+    const handleContinue = async () => {
+        if (!hasMandatoryIdDocument || uploadingDocumentType) {
+            return;
+        }
+
+        setIsSavingDraft(true);
+        const draftResult = await saveProviderDraft({
+            providerMode: accountType,
+            onboarding: {
+                currentStage: 'bank',
+                isComplete: false,
+            },
+        });
+        setIsSavingDraft(false);
+
+        if (!draftResult.success) {
+            Alert.alert(
+                t('provider.documents.save_failed_title', 'Unable to Save'),
+                draftResult.error || t('provider.documents.save_failed_message', 'Could not save your onboarding progress right now.')
+            );
+            return;
+        }
+
+        navigation.navigate('RegistrationBank', {
+            accountType,
+            phone,
+            personal,
+            serviceDetails,
+            documents: uploadedDocuments,
+        });
+    };
+
+    const UploadCard = ({
+        title,
+        documentType,
+        optional = false,
+    }: {
+        title: string;
+        documentType: VerificationDocumentType;
+        optional?: boolean;
+    }) => {
+        const uploadedDocument = uploadedDocuments[documentType];
+        const isUploaded = Boolean(uploadedDocument?.documentUrl);
+        const isUploading = uploadingDocumentType === documentType;
+        const statusText = isUploading
+            ? t('provider.documents.uploading', 'Uploading...')
+            : isUploaded
+                ? uploadedDocument?.fileName || t('provider.documents.uploaded', 'Uploaded successfully')
+                : t('provider.documents.tap_upload', 'Tap to upload document');
+
+        return (
         <TouchableOpacity
             style={[
                 styles.uploadCard,
-                uploaded && { borderColor: theme.colors.success, backgroundColor: theme.colors.surface }
+                isUploaded && { borderColor: theme.colors.success, backgroundColor: theme.colors.surface },
+                uploadingDocumentType && uploadingDocumentType !== documentType && { opacity: 0.55 },
             ]}
-            onPress={onPress}
+            onPress={() => handleUploadDocument(documentType)}
+            disabled={Boolean(uploadingDocumentType)}
         >
-            <View style={[styles.uploadIcon, uploaded && { backgroundColor: theme.colors.surfaceHighlight }]}>
-                <Icon name={uploaded ? "check-circle" : "cloud-upload"} size={28} color={uploaded ? theme.colors.success : theme.colors.primary} />
+            <View style={[styles.uploadIcon, isUploaded && { backgroundColor: theme.colors.surfaceHighlight }]}>
+                {isUploading ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                    <Icon name={isUploaded ? 'check-circle' : 'cloud-upload'} size={28} color={isUploaded ? theme.colors.success : theme.colors.primary} />
+                )}
             </View>
             <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.uploadTitle}>{title}</Text>
-                <Text style={styles.uploadStatus}>{uploaded ? t('provider.documents.uploaded', 'Verified') : t('provider.documents.tap_upload', 'Tap to upload document')}</Text>
+                <Text style={styles.uploadTitle}>
+                    {title}
+                    {optional ? <Text style={styles.optionalText}> (Optional)</Text> : null}
+                </Text>
+                <Text style={styles.uploadStatus}>{statusText}</Text>
             </View>
-            {!uploaded && <Icon name="chevron-right" size={24} color={theme.colors.textMuted} />}
+            {!isUploading ? (
+                <Icon name={isUploaded ? 'edit' : 'chevron-right'} size={22} color={theme.colors.textMuted} />
+            ) : null}
         </TouchableOpacity>
-    );
+        );
+    };
 
     return (
         <SafeAreaView style={styles.container}>
@@ -1024,11 +1348,17 @@ export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
                     </Text>
                 </View>
 
-                <UploadCard title={t('provider.documents.aadhaar', 'Aadhaar Card')} uploaded={aadhaarUploaded} onPress={() => setAadhaarUploaded(!aadhaarUploaded)} />
-                <UploadCard title={t('provider.documents.driving_license', 'Driving License')} uploaded={drivingLicenseUploaded} onPress={() => setDrivingLicenseUploaded(!drivingLicenseUploaded)} />
-                <UploadCard title={t('provider.documents.passport_voter', 'Passport / Voter ID')} uploaded={passportUploaded} onPress={() => setPassportUploaded(!passportUploaded)} />
-                <UploadCard title={t('provider.documents.skill_certificate', 'Skill Certificate (Optional)')} uploaded={skillCertificateUploaded} onPress={() => setSkillCertificateUploaded(!skillCertificateUploaded)} />
-                <UploadCard title={t('provider.documents.selfie_card', 'Take a Selfie')} uploaded={selfieUploaded} onPress={handleTakeSelfie} />
+                <FieldLabel text={t('provider.documents.id_group_label', 'Any one ID proof')} required />
+                <UploadCard title={t('provider.documents.aadhaar', 'Aadhaar Card')} documentType="aadhaar" />
+                <UploadCard title={t('provider.documents.driving_license', 'Driving License')} documentType="driving-license" />
+                <UploadCard title={t('provider.documents.passport_voter', 'Passport / Voter ID')} documentType="passport-or-voter-id" />
+                <FieldLabel
+                    text={t('provider.documents.optional_group_label', 'Optional supporting documents')}
+                    optional
+                    style={{ marginTop: theme.spacing.s }}
+                />
+                <UploadCard title={t('provider.documents.skill_certificate', 'Skill Certificate')} documentType="skill-certificate" optional />
+                <UploadCard title={t('provider.documents.selfie_card', 'Take a Selfie')} documentType="selfie" optional />
 
                 {hasMandatoryIdDocument && (
                     <View style={styles.verificationStatus}>
@@ -1038,24 +1368,12 @@ export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
                 )}
             </ScrollView>
             <View style={styles.footer}>
-                    <Button
+                <Button
                         title={t('provider.documents.almost_done', 'Almost Done')}
-                        onPress={() => navigation.navigate('RegistrationBank', {
-                            accountType,
-                            phone,
-                            personal,
-                            serviceDetails,
-                            documents: {
-                                aadhaarUploaded,
-                                drivingLicenseUploaded,
-                                passportUploaded,
-                                skillCertificateUploaded,
-                                selfieUploaded,
-                            },
-                        })}
-                        disabled={!hasMandatoryIdDocument}
+                        onPress={handleContinue}
+                        disabled={!hasMandatoryIdDocument || Boolean(uploadingDocumentType) || isSavingDraft}
                         icon={<Icon name="check-circle" size={20} color="#fff" />}
-                        style={{ backgroundColor: !hasMandatoryIdDocument ? theme.colors.surfaceHighlight : theme.colors.primary }}
+                        style={{ backgroundColor: (!hasMandatoryIdDocument || Boolean(uploadingDocumentType) || isSavingDraft) ? theme.colors.surfaceHighlight : theme.colors.primary }}
                 />
             </View>
         </SafeAreaView>
@@ -1065,15 +1383,38 @@ export const RegistrationDocumentsScreen = ({ navigation, route }: any) => {
 // 6. Bank Details
 export const RegistrationBankScreen = ({ navigation, route }: any) => {
     const { t } = useTranslation();
-    const [account, setAccount] = useState('');
-    const [ifsc, setIfsc] = useState('');
-    const [holder, setHolder] = useState('');
-    const { submitProviderProfile, isSubmitting, user } = useAuth();
+    const { submitProviderProfile, isSubmitting, user, provider } = useAuth();
+    const routeBank = route?.params?.bankDetails || {};
+    const draftBank = provider?.onboarding?.draft?.bank;
+    const [account, setAccount] = useState(routeBank.accountNumber || draftBank?.accountNumber || '');
+    const [ifsc, setIfsc] = useState(routeBank.ifscCode || draftBank?.ifscCode || '');
+    const [holder, setHolder] = useState(routeBank.accountHolderName || draftBank?.accountHolderName || '');
+    const [isKeyboardVisible, setKeyboardVisible] = useState(false);
     const phone = route?.params?.phone || user?.phone || '';
-    const personal = route?.params?.personal;
-    const serviceDetails = route?.params?.serviceDetails;
-    const documents = route?.params?.documents || {};
+    const personal = route?.params?.personal || provider?.onboarding?.draft?.personal;
+    const serviceDetails = route?.params?.serviceDetails || provider?.onboarding?.draft?.service;
+    const documents = ((route?.params?.documents || mapVerificationDocumentsToUploadMap(provider?.verification?.documents || [])) as UploadedVerificationDocumentMap);
     const accountType = getAccountType(route);
+
+    useEffect(() => {
+        const keyboardDidShowListener = Keyboard.addListener(
+            'keyboardDidShow',
+            () => {
+                setKeyboardVisible(true);
+            }
+        );
+        const keyboardDidHideListener = Keyboard.addListener(
+            'keyboardDidHide',
+            () => {
+                setKeyboardVisible(false);
+            }
+        );
+
+        return () => {
+            keyboardDidHideListener.remove();
+            keyboardDidShowListener.remove();
+        };
+    }, []);
 
     const handleComplete = async () => {
         const selectedLocation = serviceDetails?.location as RegistrationLocation | undefined;
@@ -1148,17 +1489,42 @@ export const RegistrationBankScreen = ({ navigation, route }: any) => {
             },
             verification: {
                 documents: [
-                    documents?.aadhaarUploaded ? { type: 'aadhaar', documentUrl: 'captured', status: 'pending' } : null,
-                    documents?.drivingLicenseUploaded ? { type: 'driving-license', documentUrl: 'captured', status: 'pending' } : null,
-                    documents?.passportUploaded ? { type: 'passport-or-voter-id', documentUrl: 'captured', status: 'pending' } : null,
-                    documents?.skillCertificateUploaded ? { type: 'skill-certificate', documentUrl: 'captured', status: 'pending' } : null,
-                    documents?.selfieUploaded ? { type: 'selfie', documentUrl: 'captured', status: 'pending' } : null,
+                    documents?.aadhaar?.documentUrl ? { type: 'aadhaar', documentUrl: documents.aadhaar.documentUrl, status: 'pending' } : null,
+                    documents?.['driving-license']?.documentUrl ? { type: 'driving-license', documentUrl: documents['driving-license'].documentUrl, status: 'pending' } : null,
+                    documents?.['passport-or-voter-id']?.documentUrl ? { type: 'passport-or-voter-id', documentUrl: documents['passport-or-voter-id'].documentUrl, status: 'pending' } : null,
+                    documents?.['skill-certificate']?.documentUrl ? { type: 'skill-certificate', documentUrl: documents['skill-certificate'].documentUrl, status: 'pending' } : null,
+                    documents?.selfie?.documentUrl ? { type: 'selfie', documentUrl: documents.selfie.documentUrl, status: 'pending' } : null,
                 ].filter(Boolean) as Array<{ type: string; documentUrl: string; status: 'pending' }>,
             },
             bankDetails: {
                 accountHolderName: holder,
                 accountNumber: account,
                 ifscCode: ifsc,
+            },
+            onboarding: {
+                currentStage: 'complete',
+                isComplete: true,
+                draft: {
+                    personal: personal ? {
+                        name: personal.name,
+                        day: personal.day,
+                        month: personal.month,
+                        year: personal.year,
+                        avatar: personal.avatar,
+                        fleetId: personal.fleetId,
+                        linkedFleetName: personal.linkedFleetName,
+                    } : undefined,
+                    service: serviceDetails ? {
+                        selectedCategoryValues: serviceDetails.selectedCategoryValues,
+                        experience: serviceDetails.experience,
+                        location: serviceDetails.location,
+                    } : undefined,
+                    bank: {
+                        accountHolderName: holder,
+                        accountNumber: account,
+                        ifscCode: ifsc,
+                    },
+                },
             },
         });
 
@@ -1176,38 +1542,58 @@ export const RegistrationBankScreen = ({ navigation, route }: any) => {
         });
     };
 
+    const completeRegistrationButton = (
+        <Button
+            title={isSubmitting ? t('provider.bank.submitting', 'Submitting...') : t('provider.bank.complete_registration', 'Complete Registration')}
+            onPress={handleComplete}
+            disabled={!holder || !account || !ifsc || isSubmitting}
+            width="100%"
+            variant="success"
+            icon={<Icon name="check" size={20} color="#fff" />}
+            style={{ backgroundColor: (!holder || !account || !ifsc) ? theme.colors.surfaceHighlight : theme.colors.success }}
+        />
+    );
+
     return (
         <SafeAreaView style={styles.container}>
             <Header onBack={() => navigation.goBack()} title={t('provider.bank.header', 'Payments')} />
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                <View style={{ marginBottom: theme.spacing.l, marginTop: theme.spacing.xl }}>
-                    <Text style={styles.title}>
-                        {t('provider.bank.title.primary', 'Get')} <Text style={{ color: theme.colors.success }}>{t('provider.bank.title.accent', 'Paid')}</Text>
-                    </Text>
-                </View>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                <ScrollView
+                    contentContainerStyle={[styles.scrollContent, isKeyboardVisible && { paddingBottom: theme.spacing.l }]}
+                    style={{ flex: 1 }}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    {!isKeyboardVisible ? (
+                        <View style={{ marginBottom: theme.spacing.l, marginTop: theme.spacing.xl }}>
+                            <Text style={styles.title}>
+                                {t('provider.bank.title.primary', 'Get')} <Text style={{ color: theme.colors.success }}>{t('provider.bank.title.accent', 'Paid')}</Text>
+                            </Text>
+                        </View>
+                    ) : null}
 
-                <View style={{ gap: 16 }}>
-                    <Input label={t('provider.bank.account_holder', 'Account Holder Name')} value={holder} onChangeText={setHolder} placeholder={t('provider.bank.account_holder_placeholder', 'As per bank records')} />
-                    <Input label={t('provider.bank.account_number', 'Account Number')} value={account} onChangeText={setAccount} placeholder={t('provider.bank.account_number_placeholder', 'Enter account number')} keyboardType="number-pad" />
-                    <Input label={t('provider.bank.ifsc', 'IFSC Code')} value={ifsc} onChangeText={setIfsc} placeholder={t('provider.bank.ifsc_placeholder', 'Enter IFSC code')} />
-                </View>
+                    <View style={{ gap: 16, marginTop: isKeyboardVisible ? theme.spacing.m : 0 }}>
+                        <Input label={t('provider.bank.account_holder', 'Account Holder Name')} required value={holder} onChangeText={setHolder} placeholder={t('provider.bank.account_holder_placeholder', 'As per bank records')} />
+                        <Input label={t('provider.bank.account_number', 'Account Number')} required value={account} onChangeText={setAccount} placeholder={t('provider.bank.account_number_placeholder', 'Enter account number')} keyboardType="number-pad" />
+                        <Input label={t('provider.bank.ifsc', 'IFSC Code')} required value={ifsc} onChangeText={setIfsc} placeholder={t('provider.bank.ifsc_placeholder', 'Enter IFSC code')} />
+                    </View>
 
-                <View style={[styles.infoBox, { backgroundColor: theme.colors.surfaceHighlight, padding: 12, borderRadius: 8 }]}>
-                    <Icon name="lock" size={16} color={theme.colors.textMuted} />
-                    <Text style={styles.infoText}>{t('provider.bank.security_note', 'Your bank details are encrypted and secure.')}</Text>
-                </View>
-            </ScrollView>
-            <View style={styles.footer}>
-                <Button
-                    title={isSubmitting ? t('provider.bank.submitting', 'Submitting...') : t('provider.bank.complete_registration', 'Complete Registration')}
-                    onPress={handleComplete}
-                    disabled={!account || !ifsc || isSubmitting}
-                    width="100%"
-                    variant="success"
-                    icon={<Icon name="check" size={20} color="#fff" />}
-                    style={{ backgroundColor: (!account || !ifsc) ? theme.colors.surfaceHighlight : theme.colors.success }}
-                />
-            </View>
+                    <View style={[styles.infoBox, { backgroundColor: theme.colors.surfaceHighlight, padding: 12, borderRadius: 8 }]}>
+                        <Icon name="lock" size={16} color={theme.colors.textMuted} />
+                        <Text style={styles.infoText}>{t('provider.bank.security_note', 'Your bank details are encrypted and secure.')}</Text>
+                    </View>
+
+                    {isKeyboardVisible ? (
+                        <View style={styles.keyboardActionWrap}>
+                            {completeRegistrationButton}
+                        </View>
+                    ) : null}
+                </ScrollView>
+                {!isKeyboardVisible ? (
+                    <View style={styles.footer}>
+                        {completeRegistrationButton}
+                    </View>
+                ) : null}
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 };
@@ -1254,7 +1640,7 @@ export const PartnerCompanyScreen = ({ navigation }: any) => {
                     <Text style={styles.partnerInfoText}>{t('provider.partner.company.banner', 'One partner account can manage multiple drivers or service professionals.')}</Text>
                 </View>
 
-                <Text style={styles.label}>{t('provider.partner.company.type_label', 'Partner Type')}</Text>
+                <FieldLabel text={t('provider.partner.company.type_label', 'Partner Type')} required />
                 <View style={styles.grid}>
                     {PARTNER_TYPES.map(type => {
                         const isSelected = partnerType === type.value;
@@ -1270,16 +1656,17 @@ export const PartnerCompanyScreen = ({ navigation }: any) => {
                     })}
                 </View>
 
-                <Input label={t('provider.partner.company.business_name', 'Business / Agency Name')} value={businessName} onChangeText={setBusinessName} placeholder={t('provider.partner.company.business_name_placeholder', 'FastTrack Services')} />
-                <Input label={t('provider.partner.company.owner_name', 'Owner / Manager Name')} value={ownerName} onChangeText={setOwnerName} placeholder={t('provider.partner.company.owner_name_placeholder', 'Enter full name')} />
-                <Input label={t('provider.partner.company.primary_city', 'Primary City')} value={city} onChangeText={setCity} placeholder={t('provider.partner.company.primary_city_placeholder', 'Bengaluru')} />
+                <Input label={t('provider.partner.company.business_name', 'Business / Agency Name')} required value={businessName} onChangeText={setBusinessName} placeholder={t('provider.partner.company.business_name_placeholder', 'FastTrack Services')} />
+                <Input label={t('provider.partner.company.owner_name', 'Owner / Manager Name')} required value={ownerName} onChangeText={setOwnerName} placeholder={t('provider.partner.company.owner_name_placeholder', 'Enter full name')} />
+                <Input label={t('provider.partner.company.primary_city', 'Primary City')} required value={city} onChangeText={setCity} placeholder={t('provider.partner.company.primary_city_placeholder', 'Bengaluru')} />
                 <Input
-                    label={t('provider.partner.company.fleet_id', 'Existing Fleet ID (Optional)')}
+                    label={t('provider.partner.company.fleet_id', 'Existing Fleet ID')}
+                    optional
                     value={fleetId}
                     onChangeText={(text) => setFleetId(text.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
                     placeholder={t('provider.partner.company.fleet_id_placeholder', 'Enter if you already have one')}
                 />
-                <Input label={t('provider.partner.company.gstin', 'GSTIN / Business ID (Optional)')} value={gstin} onChangeText={setGstin} placeholder={t('provider.partner.company.gstin_placeholder', 'Business registration number')} />
+                <Input label={t('provider.partner.company.gstin', 'GSTIN / Business ID')} optional value={gstin} onChangeText={setGstin} placeholder={t('provider.partner.company.gstin_placeholder', 'Business registration number')} />
             </ScrollView>
             <View style={styles.footer}>
                 <Button
@@ -1313,7 +1700,7 @@ export const PartnerOperationsScreen = ({ navigation, route }: any) => {
                     <Text style={styles.subtitle}>{t('provider.partner.operations.subtitle', 'Choose your model and the kinds of workers you want to onboard under this partner account.')}</Text>
                 </View>
 
-                <Text style={styles.label}>{t('provider.partner.operations.service_model', 'Service Model')}</Text>
+                <FieldLabel text={t('provider.partner.operations.service_model', 'Service Model')} required />
                 <View style={styles.grid}>
                     {PARTNER_SERVICE_MODELS.map(model => {
                         const isSelected = selectedModel === model.value;
@@ -1329,7 +1716,7 @@ export const PartnerOperationsScreen = ({ navigation, route }: any) => {
                     })}
                 </View>
 
-                <Text style={styles.label}>{t('provider.partner.operations.team_categories', 'Team Categories')}</Text>
+                <FieldLabel text={t('provider.partner.operations.team_categories', 'Team Categories')} required />
                 <View style={styles.grid}>
                     {PARTNER_CATEGORIES.map(category => {
                         const isSelected = selectedCategories.includes(category.value);
@@ -1351,9 +1738,10 @@ export const PartnerOperationsScreen = ({ navigation, route }: any) => {
                     })}
                 </View>
 
-                <Input label={t('provider.partner.operations.coverage_area', 'Coverage Area')} value={coverageArea} onChangeText={setCoverageArea} placeholder={t('provider.partner.operations.coverage_area_placeholder', 'City, zones, or pin codes')} />
+                <Input label={t('provider.partner.operations.coverage_area', 'Coverage Area')} required value={coverageArea} onChangeText={setCoverageArea} placeholder={t('provider.partner.operations.coverage_area_placeholder', 'City, zones, or pin codes')} />
                 <Input
                     label={t('provider.partner.operations.team_size', 'Current Team Size')}
+                    required
                     value={fleetSize}
                     onChangeText={(text) => setFleetSize(text.replace(/[^0-9]/g, ''))}
                     placeholder={t('provider.partner.operations.team_size_placeholder', 'Number of active drivers / technicians')}
@@ -1382,27 +1770,91 @@ export const PartnerOperationsScreen = ({ navigation, route }: any) => {
 
 export const PartnerVerificationScreen = ({ navigation, route }: any) => {
     const { t } = useTranslation();
-    const [companyDocUploaded, setCompanyDocUploaded] = useState(false);
-    const [ownerIdUploaded, setOwnerIdUploaded] = useState(false);
-    const [officeProofUploaded, setOfficeProofUploaded] = useState(false);
+    const initialDocuments = route?.params?.verification && typeof route.params.verification === 'object'
+        ? route.params.verification as UploadedVerificationDocumentMap
+        : {};
+    const [uploadedDocuments, setUploadedDocuments] = useState<UploadedVerificationDocumentMap>(initialDocuments);
+    const [uploadingDocumentType, setUploadingDocumentType] = useState<VerificationDocumentType | null>(null);
     const company = route?.params?.company;
     const operations = route?.params?.operations;
+    const hasRequiredDocuments = Boolean(
+        uploadedDocuments['company-registration']?.documentUrl
+        && uploadedDocuments['owner-id']?.documentUrl
+        && uploadedDocuments['office-proof']?.documentUrl
+    );
+
+    const handleUploadDocument = async (documentType: 'company-registration' | 'owner-id' | 'office-proof') => {
+        const pickerResult = await launchImageLibrary({
+            mediaType: 'photo',
+            selectionLimit: 1,
+            quality: 0.8,
+            maxWidth: 1800,
+            maxHeight: 1800,
+        });
+
+        if (pickerResult.didCancel) {
+            return;
+        }
+
+        if (pickerResult.errorCode) {
+            Alert.alert(
+                t('provider.partner.verification.upload_failed_title', 'Upload Failed'),
+                pickerResult.errorMessage || t('provider.partner.verification.upload_failed_open', 'Could not open your photo library.')
+            );
+            return;
+        }
+
+        const selectedAsset = pickerResult.assets?.[0];
+        const uploadPayload = selectedAsset ? buildDocumentUploadPayload(selectedAsset, documentType) : null;
+
+        if (!uploadPayload) {
+            Alert.alert(
+                t('provider.partner.verification.upload_failed_title', 'Upload Failed'),
+                t('provider.partner.verification.upload_failed_prepare', 'Could not prepare the selected document.')
+            );
+            return;
+        }
+
+        setUploadingDocumentType(documentType);
+
+        const uploadResult = await providerService.uploadVerificationDocument(documentType, uploadPayload);
+
+        if (!uploadResult.success || !uploadResult.data?.documentUrl) {
+            setUploadingDocumentType(null);
+            Alert.alert(
+                t('provider.partner.verification.upload_failed_title', 'Upload Failed'),
+                uploadResult.error || t('provider.partner.verification.upload_failed_server', 'Could not upload the selected document.')
+            );
+            return;
+        }
+
+        const uploadedData = uploadResult.data;
+
+        setUploadedDocuments((current) => ({
+            ...current,
+            [documentType]: {
+                type: documentType,
+                documentUrl: uploadedData.documentUrl,
+                localUri: uploadPayload.uri,
+                fileName: uploadedData.originalName || uploadPayload.name,
+                mimeType: uploadedData.mimeType || uploadPayload.type,
+            },
+        }));
+        setUploadingDocumentType(null);
+    };
 
     const uploadItems = [
         {
             title: t('provider.partner.verification.company_doc', 'Company Registration / GST'),
-            uploaded: companyDocUploaded,
-            onPress: () => setCompanyDocUploaded(!companyDocUploaded)
+            type: 'company-registration' as const,
         },
         {
             title: t('provider.partner.verification.owner_id', 'Owner ID Proof'),
-            uploaded: ownerIdUploaded,
-            onPress: () => setOwnerIdUploaded(!ownerIdUploaded)
+            type: 'owner-id' as const,
         },
         {
             title: t('provider.partner.verification.office_proof', 'Office Address Proof'),
-            uploaded: officeProofUploaded,
-            onPress: () => setOfficeProofUploaded(!officeProofUploaded)
+            type: 'office-proof' as const,
         }
     ];
 
@@ -1417,23 +1869,47 @@ export const PartnerVerificationScreen = ({ navigation, route }: any) => {
                     <Text style={styles.subtitle}>{t('provider.partner.verification.subtitle', 'Upload the core documents required to activate partner mode and start adding your team.')}</Text>
                 </View>
 
+                <FieldLabel text={t('provider.partner.verification.required_docs', 'Required documents')} required />
                 {uploadItems.map((item) => (
-                    <TouchableOpacity
-                        key={item.title}
-                        style={[
-                            styles.uploadCard,
-                            item.uploaded && { borderColor: theme.colors.success, backgroundColor: theme.colors.surface }
-                        ]}
-                        onPress={item.onPress}
-                    >
-                        <View style={[styles.uploadIcon, item.uploaded && { backgroundColor: '#dcfce7' }]}>
-                            <Icon name={item.uploaded ? 'check-circle' : 'description'} size={26} color={item.uploaded ? theme.colors.success : theme.colors.primary} />
-                        </View>
-                        <View style={{ flex: 1, marginLeft: 16 }}>
-                            <Text style={styles.uploadTitle}>{item.title}</Text>
-                            <Text style={styles.uploadStatus}>{item.uploaded ? t('provider.partner.verification.uploaded', 'Uploaded successfully') : t('provider.partner.verification.tap_upload', 'Tap to upload document')}</Text>
-                        </View>
-                    </TouchableOpacity>
+                    (() => {
+                        const isUploaded = Boolean(uploadedDocuments[item.type]?.documentUrl);
+                        const isUploading = uploadingDocumentType === item.type;
+
+                        return (
+                            <TouchableOpacity
+                                key={item.title}
+                                style={[
+                                    styles.uploadCard,
+                                    isUploaded ? { borderColor: theme.colors.success, backgroundColor: theme.colors.surface } : undefined,
+                                    uploadingDocumentType && uploadingDocumentType !== item.type ? { opacity: 0.55 } : undefined,
+                                ]}
+                                onPress={() => handleUploadDocument(item.type)}
+                                disabled={Boolean(uploadingDocumentType)}
+                            >
+                                <View style={[styles.uploadIcon, isUploaded ? { backgroundColor: '#dcfce7' } : undefined]}>
+                                    {isUploading ? (
+                                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                                    ) : (
+                                        <Icon
+                                            name={isUploaded ? 'check-circle' : 'description'}
+                                            size={26}
+                                            color={isUploaded ? theme.colors.success : theme.colors.primary}
+                                        />
+                                    )}
+                                </View>
+                                <View style={{ flex: 1, marginLeft: 16 }}>
+                                    <Text style={styles.uploadTitle}>{item.title}</Text>
+                                    <Text style={styles.uploadStatus}>
+                                        {isUploading
+                                            ? t('provider.partner.verification.uploading', 'Uploading...')
+                                            : isUploaded
+                                                ? uploadedDocuments[item.type]?.fileName || t('provider.partner.verification.uploaded', 'Uploaded successfully')
+                                                : t('provider.partner.verification.tap_upload', 'Tap to upload document')}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        );
+                    })()
                 ))}
 
                 <View style={styles.verificationStatus}>
@@ -1447,13 +1923,9 @@ export const PartnerVerificationScreen = ({ navigation, route }: any) => {
                     onPress={() => navigation.navigate('PartnerTeam', {
                         company,
                         operations,
-                        verification: {
-                            companyDocUploaded,
-                            ownerIdUploaded,
-                            officeProofUploaded,
-                        },
+                        verification: uploadedDocuments,
                     })}
-                    disabled={!companyDocUploaded || !ownerIdUploaded || !officeProofUploaded}
+                    disabled={!hasRequiredDocuments || Boolean(uploadingDocumentType)}
                 />
             </View>
         </SafeAreaView>
@@ -1469,7 +1941,7 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
     const { submitProviderProfile, isSubmitting } = useAuth();
     const company = route?.params?.company;
     const operations = route?.params?.operations;
-    const verification = route?.params?.verification;
+    const verification = (route?.params?.verification || {}) as UploadedVerificationDocumentMap;
 
     const handleComplete = async () => {
         const profileResult = await userService.updateProfile({
@@ -1517,10 +1989,10 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
             },
             verification: {
                 documents: [
-                    { type: 'company-registration', documentUrl: verification?.companyDocUploaded ? company?.gstin || 'uploaded' : '', status: 'pending' },
-                    { type: 'owner-id', documentUrl: verification?.ownerIdUploaded ? 'uploaded' : '', status: 'pending' },
-                    { type: 'office-proof', documentUrl: verification?.officeProofUploaded ? 'uploaded' : '', status: 'pending' },
-                ],
+                    verification?.['company-registration']?.documentUrl ? { type: 'company-registration', documentUrl: verification['company-registration'].documentUrl, status: 'pending' } : null,
+                    verification?.['owner-id']?.documentUrl ? { type: 'owner-id', documentUrl: verification['owner-id'].documentUrl, status: 'pending' } : null,
+                    verification?.['office-proof']?.documentUrl ? { type: 'office-proof', documentUrl: verification['office-proof'].documentUrl, status: 'pending' } : null,
+                ].filter(Boolean) as Array<{ type: string; documentUrl: string; status: 'pending' }>,
             },
         });
 
@@ -1549,9 +2021,10 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
                     <Text style={styles.subtitle}>{t('provider.partner.team.subtitle', 'This sets up the partner account for allocating jobs to your drivers or technicians.')}</Text>
                 </View>
 
-                <Input label={t('provider.partner.team.operations_lead', 'Operations Lead')} value={teamLeadName} onChangeText={setTeamLeadName} placeholder={t('provider.partner.team.operations_lead_placeholder', 'Team manager or dispatcher name')} />
+                <Input label={t('provider.partner.team.operations_lead', 'Operations Lead')} required value={teamLeadName} onChangeText={setTeamLeadName} placeholder={t('provider.partner.team.operations_lead_placeholder', 'Team manager or dispatcher name')} />
                 <Input
                     label={t('provider.partner.team.support_phone', 'Support Phone')}
+                    required
                     value={supportPhone}
                     onChangeText={(text) => setSupportPhone(text.replace(/[^0-9]/g, ''))}
                     placeholder={t('provider.partner.team.support_phone_placeholder', 'Partner support number')}
@@ -1560,6 +2033,7 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
                 />
                 <Input
                     label={t('provider.partner.team.max_jobs', 'Max Concurrent Jobs')}
+                    required
                     value={teamCapacity}
                     onChangeText={(text) => setTeamCapacity(text.replace(/[^0-9]/g, ''))}
                     placeholder={t('provider.partner.team.max_jobs_placeholder', 'How many jobs can your team handle at once?')}
@@ -1568,6 +2042,7 @@ export const PartnerTeamScreen = ({ navigation, route }: any) => {
                 />
                 <Input
                     label={t('provider.partner.team.notes', 'Notes for Admin Review')}
+                    optional
                     value={notes}
                     onChangeText={setNotes}
                     placeholder={t('provider.partner.team.notes_placeholder', 'Any extra information about your team, fleet, or service model')}
@@ -1811,6 +2286,17 @@ const styles = StyleSheet.create({
         flex: 1,
         fontWeight: '600',
     },
+    retryAction: {
+        alignSelf: 'flex-start',
+        paddingHorizontal: theme.spacing.s,
+        paddingVertical: 6,
+        marginTop: -4,
+        marginBottom: theme.spacing.m,
+    },
+    retryActionText: {
+        color: theme.colors.primary,
+        fontWeight: '700',
+    },
     successBanner: {
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -1925,6 +2411,14 @@ const styles = StyleSheet.create({
         color: theme.colors.textSecondary,
         marginBottom: theme.spacing.m,
         fontWeight: '600',
+    },
+    requiredMark: {
+        color: theme.colors.error,
+        fontWeight: '700',
+    },
+    optionalText: {
+        color: theme.colors.textMuted,
+        fontWeight: '500',
     },
     grid: {
         flexDirection: 'row',

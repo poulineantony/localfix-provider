@@ -1,0 +1,17 @@
+(node:31524) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Failed to construct transformer:  Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at spawn (node:child_process:753:9)
+    at fork (node:child_process:171:10)
+    at ChildProcessWorker.initialize (D:\Mitra-Projects\localfix\localfixProvider\node_modules\jest-worker\build\workers\ChildProcessWorker.js:144:45)
+    at new ChildProcessWorker (D:\Mitra-Projects\localfix\localfixProvider\node_modules\jest-worker\build\workers\ChildProcessWorker.js:100:10)
+    at WorkerPool.createWorker (D:\Mitra-Projects\localfix\localfixProvider\node_modules\jest-worker\build\WorkerPool.js:30:12)
+    at new BaseWorkerPool (D:\Mitra-Projects\localfix\localfixProvider\node_modules\jest-worker\build\base\BaseWorkerPool.js:55:27)
+    at new WorkerPool (D:\Mitra-Projects\localfix\localfixProvider\node_modules\jest-worker\build\WorkerPool.js:18:1)
+    at new Worker (D:\Mitra-Projects\localfix\localfixProvider\node_modules\jest-worker\build\index.js:141:26)
+    at FileMap._getWorker (D:\Mitra-Projects\localfix\localfixProvider\node_modules\metro-file-map\src\index.js:560:24) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}

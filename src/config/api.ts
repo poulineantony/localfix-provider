@@ -6,6 +6,8 @@ export const API_ENDPOINTS = {
         verifyOtp: '/auth/verify-otp',
         me: '/auth/me',
         logout: '/auth/logout',
+        refresh: '/auth/refresh',
+        resendEmailVerification: '/auth/resend-email-verification',
     },
     devices: {
         register: '/devices/register',
@@ -23,9 +25,12 @@ export const API_ENDPOINTS = {
     providers: {
         list: '/providers',
         me: '/providers/me',
+        draft: '/providers/draft',
+        documents: '/providers/documents',
         create: '/providers',
         update: (id: string) => `/providers/${id}`,
         availability: (id: string) => `/providers/${id}/availability`,
+        shifts: (id: string) => `/providers/${id}/shifts`,
         stats: (id: string) => `/providers/${id}/stats`,
     },
     bookings: {

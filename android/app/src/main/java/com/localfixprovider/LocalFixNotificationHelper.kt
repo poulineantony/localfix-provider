@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -21,8 +23,13 @@ object LocalFixNotificationHelper {
     private const val CHANNEL_GENERAL = "localfix_general"
     private const val CHANNEL_SECURITY = "localfix_security"
     private const val CHANNEL_BOOKING = "localfix_booking"
+    private const val CHANNEL_NEW_JOB = "localfix_new_job"
     private const val CHANNEL_REMINDER = "localfix_reminder"
     private const val CHANNEL_SOS = "localfix_sos"
+
+    private fun getCustomSoundUri(context: Context): Uri {
+        return Uri.parse("android.resource://${context.packageName}/${R.raw.ios_subtle_ping}")
+    }
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -30,21 +37,43 @@ object LocalFixNotificationHelper {
         }
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val soundUri = getCustomSoundUri(context)
+        val audioAttributes = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .build()
+
+        val bookingVibration = longArrayOf(0, 400, 200, 400, 200, 400)
+
         val channels = listOf(
             NotificationChannel(CHANNEL_GENERAL, "General Updates", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "General LocalFix updates"
+                setSound(soundUri, audioAttributes)
             },
             NotificationChannel(CHANNEL_SECURITY, "Security Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Login and account security alerts"
             },
+            // Standard booking status updates
             NotificationChannel(CHANNEL_BOOKING, "Booking Updates", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "New jobs and booking status changes"
+                description = "Booking status changes"
+                setSound(soundUri, audioAttributes)
+                enableVibration(true)
+                vibrationPattern = bookingVibration
+            },
+            // NEW JOB REQUEST — max importance so it appears as heads-up even when app is open
+            NotificationChannel(CHANNEL_NEW_JOB, "New Job Requests", NotificationManager.IMPORTANCE_MAX).apply {
+                description = "New incoming job requests from customers"
+                setSound(soundUri, audioAttributes)
+                enableVibration(true)
+                vibrationPattern = bookingVibration
+                setBypassDnd(true)
             },
             NotificationChannel(CHANNEL_REMINDER, "Reminders", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "Upcoming service and job reminders"
             },
             NotificationChannel(CHANNEL_SOS, "SOS Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Emergency booking alerts"
+                setSound(soundUri, audioAttributes)
             },
         )
 
@@ -53,6 +82,7 @@ object LocalFixNotificationHelper {
 
     private fun resolveChannel(channelId: String?): String = when (channelId) {
         CHANNEL_SECURITY, "security" -> CHANNEL_SECURITY
+        CHANNEL_NEW_JOB, "new_job" -> CHANNEL_NEW_JOB
         CHANNEL_BOOKING, "booking" -> CHANNEL_BOOKING
         CHANNEL_REMINDER, "reminder" -> CHANNEL_REMINDER
         CHANNEL_SOS, "sos" -> CHANNEL_SOS
@@ -82,7 +112,8 @@ object LocalFixNotificationHelper {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
         val pendingIntent = PendingIntent.getActivity(context, notificationId, launchIntent, pendingIntentFlags)
 
-        val builder = NotificationCompat.Builder(context, resolveChannel(channelId))
+        val resolvedChannel = resolveChannel(channelId)
+        val builder = NotificationCompat.Builder(context, resolvedChannel)
             .setSmallIcon(context.applicationInfo.icon)
             .setContentTitle(title)
             .setContentText(body)
@@ -90,7 +121,8 @@ object LocalFixNotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setDefaults(NotificationCompat.DEFAULT_VIBRATE or NotificationCompat.DEFAULT_LIGHTS)
+            .setSound(getCustomSoundUri(context))
 
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }

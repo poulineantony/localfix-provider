@@ -1,0 +1,18 @@
+(node:33400) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+node:internal/fs/promises:1027
+  const result = await PromisePrototypeThen(
+                 ^
+
+Error: UNKNOWN: unknown error, lstat 'D:\Mitra-Projects\localfix\localfixProvider\android\app\build\intermediates\dex\debug\mergeLibDexDebug\7\?\D:\Mitra-Projects\localfix\localfixProvider\android\app\build\intermediates\dex\debug\mergeLibDexDebug\7'
+    at async Object.lstat (node:internal/fs/promises:1027:18)
+    at async NodeWatcher._processChange (D:\Mitra-Projects\localfix\localfixProvider\node_modules\metro-file-map\src\watchers\NodeWatcher.js:166:20)
+Emitted 'error' event on NodeWatcher instance at:
+    at D:\Mitra-Projects\localfix\localfixProvider\node_modules\metro-file-map\src\watchers\NodeWatcher.js:157:14 {
+  errno: -4094,
+  code: 'UNKNOWN',
+  syscall: 'lstat',
+  path: 'D:\\Mitra-Projects\\localfix\\localfixProvider\\android\\app\\build\\intermediates\\dex\\debug\\mergeLibDexDebug\\7\\?\\D:\\Mitra-Projects\\localfix\\localfixProvider\\android\\app\\build\\intermediates\\dex\\debug\\mergeLibDexDebug\\7'
+}
+
+Node.js v22.13.1

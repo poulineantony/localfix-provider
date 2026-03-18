@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">LocalFix Provider</string>
+    <integer name="react_native_dev_server_port">8082</integer>
 </resources>

@@ -1,24 +1,27 @@
 export const theme = {
     colors: {
-        primary: '#6366f1', // Indigo-500: Vibrant
-        primaryVariant: '#4338ca', // Indigo-700
-        secondary: '#0ea5e9', // Sky-500: Neon blue accent
-        background: '#ffffff', // White
-        surface: '#ffffff', // White
-        surfaceHighlight: '#f1f5f9', // Slate-100: Very light grey for inputs/cards
-        text: '#0f172a', // Slate-900: Deep dark blue/black
-        textSecondary: '#64748b', // Slate-500
-        textMuted: '#94a3b8', // Slate-400
-        success: '#10b981', // Emerald-500
-        error: '#ef4444', // Red-500
-        warning: '#f59e0b', // Amber-500
-        info: '#3b82f6', // Blue-500
-        border: '#e2e8f0', // Slate-200: Light border
-        card: '#ffffff',
-        glow: 'rgba(99, 102, 241, 0.2)', // More subtle glow for light mode
-        orange: '#f97316', // Orange-500
-        orangeGradientStart: '#fb923c', // Orange-400
-        orangeGradientEnd: '#ea580c', // Orange-600
+        primary: '#FC8019',        // Swiggy Orange
+        primaryDark: '#E56B00',    // Darker orange
+        primaryLight: '#FFF3E0',   // Light orange bg
+        accent: '#7B61FF',         // Violet accent
+        accentLight: '#EDE7FF',    // Light violet bg
+        accentDark: '#5A3FD6',     // Dark violet
+        background: '#FFFFFF',
+        surface: '#FFFFFF',
+        surfaceHighlight: '#F8F8F8',
+        card: '#FFFFFF',
+        text: '#1C1C1C',
+        textSecondary: '#686B78',
+        textMuted: '#93959F',
+        success: '#60B246',        // Swiggy green
+        error: '#E23744',          // Swiggy red
+        warning: '#F5A623',
+        info: '#3B82F6',
+        border: '#E9E9EB',
+        divider: '#F1F1F6',
+        orange: '#FC8019',
+        violet: '#7B61FF',
+        glow: 'rgba(252, 128, 25, 0.15)',
     },
     spacing: {
         xs: 4,
@@ -29,41 +32,41 @@ export const theme = {
         xxl: 48,
     },
     typography: {
-        h1: { fontSize: 36, fontWeight: '800', letterSpacing: -0.5 },
-        h2: { fontSize: 28, fontWeight: '700', letterSpacing: -0.25 },
-        h3: { fontSize: 22, fontWeight: '600' },
-        body: { fontSize: 16, fontWeight: '400', lineHeight: 24 },
-        caption: { fontSize: 13, fontWeight: '400', color: '#94a3b8' },
-        button: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
+        h1: { fontSize: 28, fontWeight: '800' as const, letterSpacing: -0.5 },
+        h2: { fontSize: 22, fontWeight: '700' as const },
+        h3: { fontSize: 18, fontWeight: '600' as const },
+        body: { fontSize: 14, fontWeight: '400' as const, lineHeight: 20 },
+        caption: { fontSize: 12, fontWeight: '400' as const, color: '#93959F' },
+        button: { fontSize: 15, fontWeight: '700' as const, letterSpacing: 0.3 },
     },
     borderRadius: {
         s: 6,
         m: 12,
-        l: 20,
-        xl: 32,
+        l: 16,
+        xl: 24,
         round: 9999,
     },
     shadows: {
         small: {
-            shadowColor: "#64748b",
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.15,
-            shadowRadius: 3,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.08,
+            shadowRadius: 2,
             elevation: 2,
         },
         medium: {
-            shadowColor: "#6366f1", // Hint of primary
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.20,
-            shadowRadius: 10,
-            elevation: 5,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.12,
+            shadowRadius: 8,
+            elevation: 4,
         },
         large: {
-            shadowColor: "#64748b",
-            shadowOffset: { width: 0, height: 10 },
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.15,
-            shadowRadius: 20,
-            elevation: 10,
-        }
-    }
+            shadowRadius: 16,
+            elevation: 8,
+        },
+    },
 };

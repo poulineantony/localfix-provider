@@ -4,6 +4,8 @@ import { theme } from '../config/theme';
 
 interface InputProps {
     label?: string;
+    required?: boolean;
+    optional?: boolean;
     value: string;
     onChangeText: (text: string) => void;
     placeholder?: string;
@@ -25,6 +27,8 @@ interface InputProps {
 
 export const Input = ({
     label,
+    required = false,
+    optional = false,
     value,
     onChangeText,
     placeholder,
@@ -79,7 +83,13 @@ export const Input = ({
 
     return (
         <View style={[styles.container, style]}>
-            {label && <Text style={[styles.label, isFocused && { color: theme.colors.primary }]}>{label}</Text>}
+            {label ? (
+                <Text style={[styles.label, isFocused && { color: theme.colors.primary }]}>
+                    {label}
+                    {required ? <Text style={styles.requiredMark}> *</Text> : null}
+                    {!required && optional ? <Text style={styles.optionalText}> (Optional)</Text> : null}
+                </Text>
+            ) : null}
             <Animated.View style={[
                 styles.inputWrapper,
                 {
@@ -133,6 +143,14 @@ const styles = StyleSheet.create({
         marginBottom: theme.spacing.s,
         fontWeight: '600',
         letterSpacing: 0.3,
+    },
+    requiredMark: {
+        color: theme.colors.error,
+        fontWeight: '700',
+    },
+    optionalText: {
+        color: theme.colors.textMuted,
+        fontWeight: '500',
     },
     inputWrapper: {
         borderRadius: theme.borderRadius.m,

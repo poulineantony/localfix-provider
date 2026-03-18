@@ -3,10 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "android": "react-native run-android",
-    "ios": "react-native run-ios",
+    "android": "react-native run-android --port=8082",
+    "ios": "react-native run-ios --port=8082",
     "lint": "eslint .",
-    "start": "react-native start",
+    "start": "react-native start --port=8082",
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "build:android": "cd android && gradlew.bat assembleDebug",
@@ -19,6 +19,8 @@
     "build:ios:release": "cd ios && xcodebuild -workspace localfixProvider.xcworkspace -scheme localfixProvider -configuration Release -sdk iphoneos -derivedDataPath build"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^1.24.0",
+    "@react-native-community/geolocation": "^3.4.0",
     "@react-navigation/bottom-tabs": "^6.5.11",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/stack": "^6.3.20",
@@ -30,7 +32,8 @@
     "react-native-maps": "^1.10.0",
     "react-native-safe-area-context": "4.8.2",
     "react-native-screens": "~3.29.0",
-    "react-native-vector-icons": "^10.0.3"
+    "react-native-vector-icons": "^10.0.3",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

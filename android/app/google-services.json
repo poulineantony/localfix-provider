@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1064984332423",
+    "project_id": "localfix-mitra",
+    "storage_bucket": "localfix-mitra.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1064984332423:android:b3407b7084417949d01022",
+        "android_client_info": {
+          "package_name": "com.localfixapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDk9GBnlYEF0B56-NO2rW0mS8TfJQHcd2c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1064984332423:android:6ab668f6975facf8d01022",
+        "android_client_info": {
+          "package_name": "com.localfixprovider"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDk9GBnlYEF0B56-NO2rW0mS8TfJQHcd2c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -2,6 +2,62 @@ import { API_ENDPOINTS } from '../config/api';
 import { apiClient, ApiResult } from './apiClient';
 
 export interface ProviderProfile {
+    onboarding?: ProviderOnboardingState;
+    bankDetails?: {
+        accountHolderName?: string;
+        accountNumber?: string;
+        ifscCode?: string;
+        bankName?: string;
+    };
+    rating?: {
+        average?: number;
+        count?: number;
+    };
+    completedJobs?: number;
+}
+
+export interface ProviderOnboardingDraft {
+    personal?: {
+        name?: string;
+        day?: string;
+        month?: string;
+        year?: string;
+        avatar?: string;
+        fleetId?: string;
+        linkedFleetName?: string;
+    };
+    service?: {
+        selectedCategoryValues?: string[];
+        experience?: string;
+        location?: {
+            addressLine?: string;
+            street?: string;
+            city?: string;
+            state?: string;
+            country?: string;
+            zipCode?: string;
+            placeId?: string;
+            latitude?: number;
+            longitude?: number;
+            zoneId?: string;
+            zoneName?: string;
+        };
+    };
+    bank?: {
+        accountHolderName?: string;
+        accountNumber?: string;
+        ifscCode?: string;
+    };
+}
+
+export interface ProviderOnboardingState {
+    currentStage?: 'phone' | 'personal' | 'service' | 'documents' | 'bank' | 'complete';
+    isComplete?: boolean;
+    lastSavedAt?: string;
+    draft?: ProviderOnboardingDraft;
+}
+
+export interface ProviderProfile {
     _id: string;
     user:
         | string
@@ -75,17 +131,7 @@ export interface ProviderProfile {
             reviewNote?: string;
         }>;
     };
-    bankDetails?: {
-        accountHolderName?: string;
-        accountNumber?: string;
-        ifscCode?: string;
-        bankName?: string;
-    };
-    rating?: {
-        average?: number;
-        count?: number;
-    };
-    completedJobs?: number;
+    onboarding?: ProviderOnboardingState;
 }
 
 export interface ProviderStats {
@@ -138,6 +184,11 @@ export interface ProviderPayload {
             status?: 'pending' | 'approved' | 'rejected';
         }>;
     };
+    onboarding?: {
+        currentStage?: 'phone' | 'personal' | 'service' | 'documents' | 'bank' | 'complete';
+        isComplete?: boolean;
+        draft?: ProviderOnboardingDraft;
+    };
     bankDetails?: {
         accountHolderName?: string;
         accountNumber?: string;
@@ -146,6 +197,33 @@ export interface ProviderPayload {
     };
 }
 
+export interface ProviderDraftPayload {
+    providerMode?: 'individual' | 'fleet_member' | 'partner';
+    onboarding?: ProviderPayload['onboarding'];
+}
+
+export interface ProviderDocumentUploadPayload {
+    uri: string;
+    name: string;
+    type: string;
+}
+
+export interface ProviderDocumentUploadResponse {
+    type: string;
+    documentUrl: string;
+    originalName?: string;
+    mimeType?: string;
+    provider?: ProviderProfile | null;
+}
+
+export const isMissingProviderDraftRouteError = (error?: string) => {
+    if (!error) {
+        return false;
+    }
+
+    return /providers\/draft/i.test(error) && /not found|cannot post/i.test(error);
+};
+
 export const providerService = {
     async getMine(): Promise<ApiResult<ProviderProfile | null>> {
         return apiClient.get<ProviderProfile | null>(API_ENDPOINTS.providers.me);
@@ -153,6 +231,10 @@ export const providerService = {
 
     async create(data: ProviderPayload) {
         return apiClient.post<ProviderProfile>(API_ENDPOINTS.providers.create, data);
+    },
+
+    async upsertDraft(data: ProviderDraftPayload) {
+        return apiClient.post<ProviderProfile>(API_ENDPOINTS.providers.draft, data);
     },
 
     async findFleetById(fleetId: string): Promise<ApiResult<ProviderProfile | null>> {
@@ -178,8 +260,24 @@ export const providerService = {
         return apiClient.put<ProviderProfile>(API_ENDPOINTS.providers.update(id), data);
     },
 
+    async uploadVerificationDocument(documentType: string, file: ProviderDocumentUploadPayload) {
+        const formData = new FormData();
+        formData.append('type', documentType);
+        formData.append('document', {
+            uri: file.uri,
+            name: file.name,
+            type: file.type,
+        } as any);
+
+        return apiClient.postForm<ProviderDocumentUploadResponse>(API_ENDPOINTS.providers.documents, formData);
+    },
+
     async toggleAvailability(id: string) {
         return apiClient.patch<ProviderProfile>(API_ENDPOINTS.providers.availability(id), {});
+    },
+
+    async updateShifts(id: string, shifts: { date: string, slots: string[] }[]) {
+        return apiClient.put<ProviderProfile>(API_ENDPOINTS.providers.shifts(id), { shifts });
     },
 
     async getStats(id: string) {

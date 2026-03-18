@@ -119,7 +119,7 @@ export const notificationsService = {
     async displayLocalNotification(
         title: string,
         body: string,
-        channelId: 'general' | 'security' | 'booking' | 'reminder' | 'sos' = 'general',
+        channelId: 'general' | 'security' | 'booking' | 'new_job' | 'reminder' | 'sos' = 'general',
         data: Record<string, unknown> = {},
     ) {
         if (!nativeNotifications?.displayLocalNotification) {

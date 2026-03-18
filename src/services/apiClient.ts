@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config/api';
 
 export interface ApiResult<T> {
@@ -8,6 +9,9 @@ export interface ApiResult<T> {
 }
 
 type HeaderMap = Record<string, string>;
+
+const TOKEN_KEY = 'provider_auth_token';
+const REFRESH_TOKEN_KEY = 'provider_refresh_token';
 
 let authToken: string | null = null;
 let refreshToken: string | null = null;
@@ -58,13 +62,38 @@ export const apiClient = {
     setTokens(token: string, nextRefreshToken?: string) {
         authToken = token;
         refreshToken = nextRefreshToken || null;
+        AsyncStorage.setItem(TOKEN_KEY, token).catch(() => {});
+        if (nextRefreshToken) {
+            AsyncStorage.setItem(REFRESH_TOKEN_KEY, nextRefreshToken).catch(() => {});
+        }
     },
     clearTokens() {
         authToken = null;
         refreshToken = null;
+        AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY]).catch(() => {});
     },
     getRefreshToken() {
         return refreshToken;
+    },
+    /**
+     * Restore tokens from AsyncStorage into memory.
+     * Returns true if a token was found.
+     */
+    async restoreTokens(): Promise<boolean> {
+        try {
+            const [[, storedToken], [, storedRefresh]] = await AsyncStorage.multiGet([
+                TOKEN_KEY,
+                REFRESH_TOKEN_KEY,
+            ]);
+            if (storedToken) {
+                authToken = storedToken;
+                refreshToken = storedRefresh || null;
+                return true;
+            }
+        } catch (error) {
+            console.error('Failed to restore tokens:', error);
+        }
+        return false;
     },
     async get<T>(endpoint: string, headers?: HeaderMap) {
         return request<T>(endpoint, {

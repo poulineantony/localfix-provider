@@ -3,6 +3,8 @@ import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import { useAuth } from './AuthContext';
 import { userService } from '../services/userService';
 
+import { apiClient } from '../services/apiClient';
+
 type TranslationMap = Record<string, string>;
 
 export interface SupportedLanguage {
@@ -26,11 +28,6 @@ const TranslationContext = createContext<TranslationContextValue | undefined>(un
 const isSupportedLanguage = (lang: string, languages: SupportedLanguage[]) =>
     languages.some((languageOption) => languageOption.code === lang);
 
-const fetchJson = async (url: string) => {
-    const response = await fetch(url);
-    return response.json();
-};
-
 export const TranslationProvider = ({ children }: { children: React.ReactNode }) => {
     const { user } = useAuth();
     const [translations, setTranslations] = useState<TranslationMap>({});
@@ -52,13 +49,12 @@ export const TranslationProvider = ({ children }: { children: React.ReactNode })
         let defaultLanguage = 'en';
 
         try {
-            const languagePayload = await fetchJson(`${API_BASE_URL}${API_ENDPOINTS.translations.languages}`);
+            const languagePayload = await apiClient.get<SupportedLanguage[]>(API_ENDPOINTS.translations.languages);
 
             if (languagePayload.success && Array.isArray(languagePayload.data)) {
                 nextLanguages = languagePayload.data;
-                defaultLanguage = languagePayload.defaultLanguage
-                    || nextLanguages.find((languageOption) => languageOption.isDefault)?.code
-                    || 'en';
+                const defaultLangObj = (languagePayload as any).defaultLanguage || nextLanguages.find((languageOption) => languageOption.isDefault)?.code;
+                defaultLanguage = defaultLangObj || 'en';
                 setAvailableLanguages(nextLanguages);
             } else {
                 setAvailableLanguages([]);
@@ -81,7 +77,7 @@ export const TranslationProvider = ({ children }: { children: React.ReactNode })
         setLanguage(nextLanguage);
 
         try {
-            const translationPayload = await fetchJson(`${API_BASE_URL}${API_ENDPOINTS.translations.byLanguage(nextLanguage)}`);
+            const translationPayload = await apiClient.get<TranslationMap>(API_ENDPOINTS.translations.byLanguage(nextLanguage));
             if (translationPayload.success && translationPayload.data) {
                 setTranslations(translationPayload.data);
             } else {
@@ -101,7 +97,7 @@ export const TranslationProvider = ({ children }: { children: React.ReactNode })
         setLoading(true);
 
         try {
-            const translationPayload = await fetchJson(`${API_BASE_URL}${API_ENDPOINTS.translations.byLanguage(lang)}`);
+            const translationPayload = await apiClient.get<TranslationMap>(API_ENDPOINTS.translations.byLanguage(lang));
             if (translationPayload.success && translationPayload.data) {
                 setTranslations(translationPayload.data);
             } else {

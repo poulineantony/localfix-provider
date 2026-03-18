@@ -26,44 +26,98 @@ const CARD_ASSETS = [
 
 export const WelcomeScreen = ({ navigation }: any) => {
     const { t, language, availableLanguages, changeLanguage, languagesLoading } = useTranslation();
+    const usesIndicTypography = ['ta', 'te', 'ml', 'kn', 'hi'].includes(language);
+    const welcomeTagline = t('provider.welcome.tagline', 'Service Partner App');
+    const welcomeTitle = t('provider.welcome.title', 'Earn more with LocalFix Pro');
+    const welcomeSubtitle = t('provider.welcome.subtitle', 'Get nearby service requests directly on your phone.');
+    const needsCompactWelcomeLayout =
+        usesIndicTypography
+        || welcomeTitle.length > 40
+        || welcomeSubtitle.length > 96;
+
+    const languageSelector = !languagesLoading && availableLanguages.length > 0 ? (
+        <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.languageScrollContent}
+        >
+            {availableLanguages.map((languageOption) => {
+                const isActive = language === languageOption.code;
+
+                return (
+                    <TouchableOpacity
+                        key={languageOption.code}
+                        style={[styles.langButton, isActive && styles.langButtonActive]}
+                        onPress={() => changeLanguage(languageOption.code)}
+                    >
+                        <Icon name="language" size={18} color={isActive ? '#fff' : theme.colors.textSecondary} />
+                        <Text style={[styles.langText, isActive && styles.langTextActive]}>
+                            {languageOption.label}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })}
+        </ScrollView>
+    ) : null;
+
+    if (!needsCompactWelcomeLayout) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={styles.headerRow}>
+                    {languageSelector}
+                </View>
+
+                <View style={[styles.content, styles.standardWelcomeContent]}>
+                    <View style={[styles.heroWrap, styles.heroWrapStandard]}>
+                        <LottieView
+                            source={require('../../assets/hero_anim.json')}
+                            autoPlay
+                            loop
+                            style={styles.heroAnimation}
+                            resizeMode="cover"
+                        />
+                    </View>
+                    <Text style={styles.tagline}>{welcomeTagline}</Text>
+                    <Text style={styles.title}>{welcomeTitle}</Text>
+                    <Text style={styles.subtitle}>{welcomeSubtitle}</Text>
+                </View>
+
+                <View style={styles.footer}>
+                    <Button
+                        title={t('common.continue', 'Continue')}
+                        onPress={() => navigation.navigate('ModeSelection')}
+                    />
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.headerRow}>
-                {!languagesLoading && availableLanguages.length > 0 ? (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.languageScrollContent}>
-                        {availableLanguages.map((languageOption) => {
-                            const isActive = language === languageOption.code;
-
-                            return (
-                                <TouchableOpacity
-                                    key={languageOption.code}
-                                    style={[styles.langButton, isActive && styles.langButtonActive]}
-                                    onPress={() => changeLanguage(languageOption.code)}
-                                >
-                                    <Icon name="language" size={18} color={isActive ? '#fff' : theme.colors.textSecondary} />
-                                    <Text style={[styles.langText, isActive && styles.langTextActive]}>{languageOption.nativeLabel}</Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
-                ) : null}
+                {languageSelector}
             </View>
 
-            <View style={styles.content}>
-                <View style={{ alignItems: 'center', marginBottom: theme.spacing.l, width: '100%', height: 280 }}>
-                    <LottieView
-                        source={require('../../assets/hero_anim.json')}
-                        autoPlay
-                        loop
-                        style={{ width: '100%', height: '100%' }}
-                        resizeMode="cover"
-                    />
+            <ScrollView
+                style={styles.screenScrollView}
+                contentContainerStyle={styles.compactWelcomeScrollContent}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={[styles.welcomeContent, styles.compactWelcomeContent]}>
+                    <View style={[styles.heroWrap, styles.heroWrapCompact]}>
+                        <LottieView
+                            source={require('../../assets/hero_anim.json')}
+                            autoPlay
+                            loop
+                            style={styles.heroAnimation}
+                            resizeMode="cover"
+                        />
+                    </View>
+                    <Text style={[styles.tagline, styles.compactTagline]}>{welcomeTagline}</Text>
+                    <Text style={[styles.title, styles.compactTitle, usesIndicTypography && styles.indicCompactTitle]}>{welcomeTitle}</Text>
+                    <Text style={[styles.subtitle, styles.compactSubtitle]}>{welcomeSubtitle}</Text>
                 </View>
-                <Text style={styles.tagline}>{t('provider.welcome.tagline', 'Service Partner App')}</Text>
-                <Text style={styles.title}>{t('provider.welcome.title', 'Earn more with LocalFix Pro')}</Text>
-                <Text style={styles.subtitle}>{t('provider.welcome.subtitle', 'Get nearby service requests directly on your phone.')}</Text>
-            </View>
+            </ScrollView>
 
             <View style={styles.footer}>
                 <Button
@@ -76,7 +130,10 @@ export const WelcomeScreen = ({ navigation }: any) => {
 };
 
 export const ModeSelectionScreen = ({ navigation }: any) => {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
+    const usesIndicTypography = ['ta', 'te', 'ml', 'kn', 'hi'].includes(language);
+    const modeHeading = t('provider.mode.title', 'How do you want to join LocalFix?');
+    const modeIntro = t('provider.mode.subtitle', 'Select the setup that matches your work model. You can tailor the onboarding flow from here.');
 
     const modes = [
         {
@@ -96,36 +153,47 @@ export const ModeSelectionScreen = ({ navigation }: any) => {
             onPress: () => navigation.navigate('HowItWorks', { accountType: 'fleet_member' }),
         }
     ];
+    const useCompactModeTypography =
+        usesIndicTypography
+        || modeHeading.length > 36
+        || modeIntro.length > 110
+        || modes.some((mode) => mode.subtitle.length > 72);
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={styles.modeContent}>
-                <Text style={styles.tagline}>{t('provider.mode.tagline', 'Choose your path')}</Text>
-                <Text style={styles.title}>{t('provider.mode.title', 'How do you want to join LocalFix?')}</Text>
-                <Text style={styles.subtitle}>
-                    {t('provider.mode.subtitle', 'Select the setup that matches your work model. You can tailor the onboarding flow from here.')}
-                </Text>
+            <ScrollView
+                style={styles.screenScrollView}
+                contentContainerStyle={styles.modeScrollContent}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={[styles.modeContent, styles.roomyModeContent, useCompactModeTypography && styles.compactModeContent, usesIndicTypography && styles.indicModeContent]}>
+                    <Text style={styles.tagline}>{t('provider.mode.tagline', 'Choose your path')}</Text>
+                    <Text style={[styles.title, useCompactModeTypography && styles.compactModeScreenTitle, usesIndicTypography && styles.indicModeScreenTitle]}>{modeHeading}</Text>
+                    <Text style={[styles.subtitle, styles.roomyModeScreenSubtitle, useCompactModeTypography && styles.compactModeScreenSubtitle, usesIndicTypography && styles.indicModeScreenSubtitle]}>
+                        {modeIntro}
+                    </Text>
 
-                <View style={styles.modeCardList}>
-                    {modes.map((mode) => (
-                        <TouchableOpacity
-                            key={mode.key}
-                            style={[styles.modeCard, { borderColor: mode.accent }]}
-                            onPress={mode.onPress}
-                            activeOpacity={0.9}
-                        >
-                            <View style={[styles.modeIconWrap, { backgroundColor: `${mode.accent}15` }]}>
-                                <Icon name={mode.icon} size={30} color={mode.accent} />
-                            </View>
-                            <View style={styles.modeTextWrap}>
-                                <Text style={styles.modeTitle}>{mode.title}</Text>
-                                <Text style={styles.modeSubtitle}>{mode.subtitle}</Text>
-                            </View>
-                            <Icon name="arrow-forward-ios" size={18} color={mode.accent} />
-                        </TouchableOpacity>
-                    ))}
+                    <View style={[styles.modeCardList, styles.roomyModeCardList, useCompactModeTypography && styles.compactModeCardList, usesIndicTypography && styles.indicModeCardList]}>
+                        {modes.map((mode) => (
+                            <TouchableOpacity
+                                key={mode.key}
+                                style={[styles.modeCard, styles.roomyModeCard, { borderColor: mode.accent }, useCompactModeTypography && styles.compactModeCard, usesIndicTypography && styles.indicModeCard]}
+                                onPress={mode.onPress}
+                                activeOpacity={0.9}
+                            >
+                                <View style={[styles.modeIconWrap, { backgroundColor: `${mode.accent}15` }, useCompactModeTypography && styles.compactModeIconWrap]}>
+                                    <Icon name={mode.icon} size={30} color={mode.accent} />
+                                </View>
+                                <View style={[styles.modeTextWrap, styles.roomyModeTextWrap, useCompactModeTypography && styles.compactModeTextWrap, usesIndicTypography && styles.indicModeTextWrap]}>
+                                    <Text style={[styles.modeTitle, styles.roomyModeTitle, useCompactModeTypography && styles.compactModeTitle, usesIndicTypography && styles.indicModeTitle]}>{mode.title}</Text>
+                                    <Text style={[styles.modeSubtitle, styles.roomyModeSubtitle, useCompactModeTypography && styles.compactModeSubtitle, usesIndicTypography && styles.indicModeSubtitle]}>{mode.subtitle}</Text>
+                                </View>
+                                <Icon name="arrow-forward-ios" size={18} color={mode.accent} />
+                            </TouchableOpacity>
+                        ))}
+                    </View>
                 </View>
-            </View>
+            </ScrollView>
         </SafeAreaView>
     );
 };
@@ -255,30 +323,36 @@ export const RequirementsScreen = ({ navigation, route }: any) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={styles.content}>
-                <Text style={styles.title}>{t('provider.requirements.title', 'What you need to join')}</Text>
-                <Text style={styles.subtitle}>
-                    {accountType === 'fleet_member'
-                        ? t('provider.requirements.fleet.subtitle', 'Keep your fleet ID ready before starting. Your agency or head office must already exist in the partner app.')
-                        : t('provider.requirements.individual.subtitle', 'Make sure you have these ready for a smooth registration.')}
-                </Text>
+            <ScrollView
+                style={styles.screenScrollView}
+                contentContainerStyle={styles.requirementsScrollContent}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={styles.content}>
+                    <Text style={styles.title}>{t('provider.requirements.title', 'What you need to join')}</Text>
+                    <Text style={styles.subtitle}>
+                        {accountType === 'fleet_member'
+                            ? t('provider.requirements.fleet.subtitle', 'Keep your fleet ID ready before starting. Your agency or head office must already exist in the partner app.')
+                            : t('provider.requirements.individual.subtitle', 'Make sure you have these ready for a smooth registration.')}
+                    </Text>
 
-                <View style={styles.listContainer}>
-                    {requirements.map((req, index) => (
-                        <View key={index} style={styles.listItem}>
-                            <Icon name="check-circle" size={24} color={theme.colors.success} />
-                            <Text style={styles.listText}>{req}</Text>
-                        </View>
-                    ))}
+                    <View style={styles.listContainer}>
+                        {requirements.map((req, index) => (
+                            <View key={index} style={styles.listItem}>
+                                <Icon name="check-circle" size={24} color={theme.colors.success} />
+                                <Text style={styles.listText}>{req}</Text>
+                            </View>
+                        ))}
+                    </View>
                 </View>
-            </View>
 
-            <View style={styles.footer}>
-                <Button
-                    title={t('provider.requirements.start', 'Start Registration')}
-                    onPress={() => navigation.navigate('RegistrationPhone', { accountType })}
-                />
-            </View>
+                <View style={styles.inlineFooter}>
+                    <Button
+                        title={t('provider.requirements.start', 'Start Registration')}
+                        onPress={() => navigation.navigate('RegistrationPhone', { accountType })}
+                    />
+                </View>
+            </ScrollView>
         </SafeAreaView>
     );
 };
@@ -289,10 +363,27 @@ const styles = StyleSheet.create({
         backgroundColor: theme.colors.background,
     },
     content: {
-        flex: 1,
         padding: theme.spacing.xl,
         justifyContent: 'flex-start',
         alignItems: 'center',
+    },
+    screenScrollView: {
+        flex: 1,
+    },
+    welcomeScrollContent: {
+        flexGrow: 1,
+        paddingBottom: theme.spacing.xl,
+    },
+    compactWelcomeScrollContent: {
+        flexGrow: 1,
+    },
+    modeScrollContent: {
+        flexGrow: 1,
+        paddingBottom: theme.spacing.xl,
+    },
+    requirementsScrollContent: {
+        flexGrow: 1,
+        paddingBottom: theme.spacing.xl,
     },
     header: {
         padding: theme.spacing.l,
@@ -351,6 +442,14 @@ const styles = StyleSheet.create({
     },
     footer: {
         padding: theme.spacing.xl,
+    },
+    inlineFooter: {
+        paddingHorizontal: theme.spacing.xl,
+        paddingTop: theme.spacing.m,
+        paddingBottom: theme.spacing.xl,
+    },
+    standardWelcomeContent: {
+        flex: 1,
     },
     slideHint: {
         textAlign: 'center',
@@ -420,13 +519,15 @@ const styles = StyleSheet.create({
         marginBottom: theme.spacing.l,
     },
     headerRow: {
-        minHeight: 54,
+        paddingBottom: theme.spacing.m,
         paddingHorizontal: theme.spacing.m,
         paddingTop: theme.spacing.s,
         justifyContent: 'center',
     },
     languageScrollContent: {
+        flexDirection: 'row',
         gap: theme.spacing.s,
+        paddingRight: theme.spacing.m,
     },
     langButton: {
         flexDirection: 'row',
@@ -452,14 +553,35 @@ const styles = StyleSheet.create({
         color: '#fff',
     },
     modeContent: {
-        flex: 1,
         paddingHorizontal: theme.spacing.xl,
         paddingTop: theme.spacing.xl,
         paddingBottom: theme.spacing.l,
     },
+    roomyModeContent: {
+        paddingTop: 36,
+        paddingBottom: 28,
+    },
+    compactModeContent: {
+        paddingTop: theme.spacing.l,
+    },
+    indicModeContent: {
+        paddingTop: 40,
+        paddingBottom: 32,
+    },
     modeCardList: {
         marginTop: theme.spacing.xl,
         gap: theme.spacing.m,
+    },
+    roomyModeCardList: {
+        marginTop: 28,
+        gap: 20,
+    },
+    compactModeCardList: {
+        marginTop: theme.spacing.l,
+    },
+    indicModeCardList: {
+        marginTop: 30,
+        gap: 22,
     },
     modeCard: {
         backgroundColor: theme.colors.surface,
@@ -470,6 +592,18 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         ...theme.shadows.small,
     },
+    roomyModeCard: {
+        paddingVertical: 22,
+        paddingHorizontal: 22,
+    },
+    compactModeCard: {
+        paddingVertical: 18,
+        paddingHorizontal: 18,
+    },
+    indicModeCard: {
+        paddingVertical: 24,
+        paddingHorizontal: 22,
+    },
     modeIconWrap: {
         width: 56,
         height: 56,
@@ -478,9 +612,24 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: theme.spacing.m,
     },
+    compactModeIconWrap: {
+        width: 48,
+        height: 48,
+        borderRadius: 14,
+        marginRight: 12,
+    },
     modeTextWrap: {
         flex: 1,
         paddingRight: theme.spacing.m,
+    },
+    roomyModeTextWrap: {
+        paddingRight: 12,
+    },
+    compactModeTextWrap: {
+        paddingRight: 8,
+    },
+    indicModeTextWrap: {
+        paddingRight: 14,
     },
     modeTitle: {
         fontSize: 20,
@@ -488,10 +637,49 @@ const styles = StyleSheet.create({
         color: theme.colors.text,
         marginBottom: 4,
     },
+    roomyModeTitle: {
+        marginBottom: 8,
+    },
+    compactModeTitle: {
+        fontSize: 18,
+    },
+    indicModeTitle: {
+        marginBottom: 10,
+    },
     modeSubtitle: {
         fontSize: 14,
         lineHeight: 22,
         color: theme.colors.textSecondary,
+    },
+    roomyModeSubtitle: {
+        lineHeight: 24,
+    },
+    compactModeSubtitle: {
+        fontSize: 13,
+        lineHeight: 20,
+    },
+    indicModeSubtitle: {
+        lineHeight: 26,
+    },
+    compactModeScreenTitle: {
+        fontSize: 31,
+        lineHeight: 38,
+    },
+    indicModeScreenTitle: {
+        fontSize: 29,
+        lineHeight: 36,
+    },
+    roomyModeScreenSubtitle: {
+        marginTop: 4,
+        maxWidth: '94%',
+    },
+    compactModeScreenSubtitle: {
+        fontSize: 15,
+        lineHeight: 22,
+        maxWidth: '96%',
+    },
+    indicModeScreenSubtitle: {
+        lineHeight: 24,
     },
     partnerHero: {
         alignItems: 'center',
@@ -514,5 +702,48 @@ const styles = StyleSheet.create({
         color: theme.colors.textSecondary,
         fontSize: 14,
         fontWeight: '600',
-    }
+    },
+    welcomeContent: {
+        paddingHorizontal: theme.spacing.xl,
+        alignItems: 'center',
+    },
+    compactWelcomeContent: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        paddingBottom: theme.spacing.l,
+    },
+    heroWrap: {
+        alignItems: 'center',
+        marginBottom: theme.spacing.l,
+        width: '100%',
+    },
+    heroWrapStandard: {
+        height: 280,
+    },
+    heroWrapCompact: {
+        height: 292,
+    },
+    heroAnimation: {
+        width: '100%',
+        height: '100%',
+    },
+    compactTagline: {
+        fontSize: 13,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+    compactTitle: {
+        fontSize: 42,
+        lineHeight: 50,
+        maxWidth: '96%',
+    },
+    indicCompactTitle: {
+        fontSize: 36,
+        lineHeight: 44,
+    },
+    compactSubtitle: {
+        fontSize: 15,
+        lineHeight: 22,
+        maxWidth: '94%',
+    },
 });
